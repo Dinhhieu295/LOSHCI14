@@ -19,6 +19,7 @@ export class AuthService {
     const user: AccountUser = {
       id: randomUUID(), email, passwordHash: await hashPassword(input.password),
       fullName: input.fullName.trim(), dob: input.dob ?? null, avatarUrl: null,
+      phone: null, location: null, bio: null,
       createdAt: now, updatedAt: now,
     };
     const initialState: PersonalState = {

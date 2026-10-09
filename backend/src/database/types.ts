@@ -7,6 +7,9 @@ export interface UsersTable {
   full_name: string;
   dob: string | null;
   avatar_url: string | null;
+  phone: string | null | undefined;
+  location: string | null | undefined;
+  bio: string | null | undefined;
   created_at: string;
   updated_at: string;
 }

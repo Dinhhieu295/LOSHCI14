@@ -5,6 +5,9 @@ export interface AccountUser {
   fullName: string;
   dob: string | null;
   avatarUrl: string | null;
+  phone: string | null;
+  location: string | null;
+  bio: string | null;
   createdAt: string;
   updatedAt: string;
 }

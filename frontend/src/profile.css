@@ -1,0 +1,30 @@
+.profile-panel { margin-bottom: 16px; }
+.profile-panel .panel-heading { align-items: center; }
+.profile-panel .panel-heading h3 { margin: 0; color: #334235; font-size: 15px; }
+.profile-panel .panel-heading p { margin: 5px 0 0; color: #849084; font-size: 11px; }
+.profile-panel .panel-heading .soft-button { display: inline-flex; align-items: center; gap: 7px; }
+.profile-summary { display: grid; grid-template-columns: 46px minmax(140px, 1fr) minmax(200px, .8fr); align-items: center; gap: 14px; }
+.profile-avatar { width: 44px; height: 44px; border-radius: 14px; background: #eaf2e8; color: #548b63; display: grid; place-items: center; }
+.profile-summary-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.profile-summary-main strong { color: #344235; font-size: 14px; }
+.profile-summary-main span, .profile-summary-main p { color: #7f897e; font-size: 11px; margin: 0; overflow-wrap: anywhere; }
+.profile-details { display: grid; gap: 7px; color: #697568; font-size: 10px; }
+.profile-details span { display: flex; align-items: center; gap: 7px; }
+.profile-details svg { color: #8ba286; flex: none; }
+.profile-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.profile-form label { display: grid; gap: 6px; color: #5f6d5e; font-size: 11px; font-weight: 700; }
+.profile-form input, .profile-form textarea { width: 100%; border: 1px solid #e4e9e2; border-radius: 8px; background: #fff; color: #344235; font: inherit; font-size: 12px; padding: 10px 11px; outline: none; }
+.profile-form input:focus, .profile-form textarea:focus { border-color: #9bbb95; box-shadow: 0 0 0 3px #7fa98018; }
+.profile-form textarea { resize: vertical; min-height: 76px; }
+.profile-bio-field { grid-column: 1 / -1; }
+.profile-form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.profile-form-actions button { display: inline-flex; align-items: center; gap: 7px; }
+@media (max-width: 680px) {
+  .profile-panel .panel-heading { align-items: flex-start; }
+  .profile-panel .panel-heading .soft-button { width: 38px; height: 38px; padding: 0; overflow: hidden; font-size: 0; flex: none; }
+  .profile-panel .panel-heading .soft-button svg { width: 16px; height: 16px; flex: none; }
+  .profile-summary { grid-template-columns: 42px 1fr; }
+  .profile-details { grid-column: 2; }
+  .profile-form { grid-template-columns: 1fr; }
+  .profile-bio-field, .profile-form-actions { grid-column: 1; }
+}

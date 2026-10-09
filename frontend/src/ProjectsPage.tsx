@@ -63,8 +63,12 @@ export default function ProjectsPage({ projects, loading, refresh, onNotice }: P
   };
 
   const toggleTask = async (projectId: string, task: ProjectTask) => {
-    const isDone = !task.isDone;
-    try { await api(`/projects/${projectId}/tasks/${task.id}`, { method: 'PATCH', body: JSON.stringify({ isDone, status: isDone ? 'done' : 'todo' }) }); await reloadTasks(); }
+    const isDone = !(task.isDone || task.status === 'done');
+    try {
+      await api(`/projects/${projectId}/tasks/${task.id}`, { method: 'PATCH', body: JSON.stringify({ isDone, status: isDone ? 'done' : 'todo', dueDate: task.dueDate }) });
+      if (!isDone) localStorage.removeItem(reminderKey(task));
+      await reloadTasks();
+    }
     catch (error) { onNotice(error instanceof Error ? error.message : 'Không cập nhật được task.'); }
   };
 
@@ -72,6 +76,8 @@ export default function ProjectsPage({ projects, loading, refresh, onNotice }: P
     event.preventDefault(); if (!editing || !draft.title.trim()) return;
     try {
       await api(`/projects/${projectId}/tasks/${editing}`, { method: 'PATCH', body: JSON.stringify({ title: draft.title.trim(), dueDate: draft.dueDate || null, priority: draft.priority }) });
+      const previousTask = tasksByProject[projectId]?.find(task => task.id === editing);
+      if (previousTask) localStorage.removeItem(reminderKey(previousTask));
       setEditing(null); setDraft(emptyDraft); await reloadTasks(); onNotice('Đã cập nhật task.');
     } catch (error) { onNotice(error instanceof Error ? error.message : 'Không cập nhật được task.'); }
   };

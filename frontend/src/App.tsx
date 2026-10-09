@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { api, getToken, setToken, signIn, type Assignment, type Course, type PersonalState, type Project, type ProjectTask, type StudySummary, type User } from './api';
 import ProjectsPage from './ProjectsPage';
+import ProfileEditor from './ProfileEditor';
+import './profile.css';
 
 type Section = 'overview' | 'projects' | 'study' | 'personal';
 const navItems: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
@@ -110,7 +112,7 @@ export default function App() {
         {section === 'overview' && <Overview user={user} greeting={greeting} projects={projects} courses={courses} assignments={assignments} summary={summary} personal={personal} loading={loading} onNavigate={setSection} onRefresh={loadData} />}
         {section === 'projects' && <ProjectsPage projects={projects} loading={loading} refresh={loadData} onNotice={setNotice} />}
         {section === 'study' && <StudyPage courses={courses} assignments={assignments} summary={summary} loading={loading} onRefresh={loadData} onNotice={setNotice} />}
-        {section === 'personal' && <PersonalPage personal={personal} onRefresh={loadData} onNotice={setNotice} />}
+        {section === 'personal' && <><ProfileEditor user={user} onSaved={setUser} onNotice={setNotice} /><PersonalPage personal={personal} onRefresh={loadData} onNotice={setNotice} /></>}
       </div>
     </main>
   </div>;

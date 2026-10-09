@@ -18,6 +18,7 @@ function mapAccount(row: Record<string, any>): AccountUser {
   return {
     id: row.id, email: row.email, passwordHash: row.password_hash,
     fullName: row.full_name, dob: row.dob, avatarUrl: row.avatar_url,
+    phone: row.phone ?? null, location: row.location ?? null, bio: row.bio ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -96,11 +97,14 @@ export class KyselyLifeOsRepository implements LifeOsRepositories {
     return row ? mapAccount(row) : undefined;
   }
 
-  async updateProfile(userId: string, patch: Pick<Partial<AccountUser>, 'fullName' | 'dob' | 'avatarUrl'>, updatedAt: string): Promise<void> {
+  async updateProfile(userId: string, patch: Pick<Partial<AccountUser>, 'fullName' | 'dob' | 'avatarUrl' | 'phone' | 'location' | 'bio'>, updatedAt: string): Promise<void> {
     const values: Record<string, unknown> = { updated_at: updatedAt };
     if (patch.fullName !== undefined) values.full_name = patch.fullName;
     if (patch.dob !== undefined) values.dob = patch.dob;
     if (patch.avatarUrl !== undefined) values.avatar_url = patch.avatarUrl;
+    if (patch.phone !== undefined) values.phone = patch.phone;
+    if (patch.location !== undefined) values.location = patch.location;
+    if (patch.bio !== undefined) values.bio = patch.bio;
     await db.updateTable('users').set(values).where('id', '=', userId).execute();
   }
 

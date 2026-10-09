@@ -11,7 +11,7 @@ export class ProfileService {
     return this.toPublicUser(user);
   }
 
-  async update(userId: string, patch: { fullName?: string; dob?: string | null; avatarUrl?: string | null }): Promise<PublicUser> {
+  async update(userId: string, patch: { fullName?: string; dob?: string | null; avatarUrl?: string | null; phone?: string | null; location?: string | null; bio?: string | null }): Promise<PublicUser> {
     if (!Object.keys(patch).length) throw new ApplicationError('EMPTY_UPDATE', 'Cần ít nhất một trường để cập nhật.');
     await this.requireUser(userId);
     await this.repository.updateProfile(userId, patch, new Date().toISOString());

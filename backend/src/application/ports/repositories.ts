@@ -7,7 +7,7 @@ export interface AccountRepository {
   createAccount(user: AccountUser, initialState: PersonalState, session: SessionRecord): Promise<void>;
   findUserByEmail(email: string): Promise<AccountUser | undefined>;
   findUserById(userId: string): Promise<AccountUser | undefined>;
-  updateProfile(userId: string, patch: Pick<Partial<AccountUser>, 'fullName' | 'dob' | 'avatarUrl'>, updatedAt: string): Promise<void>;
+  updateProfile(userId: string, patch: Pick<Partial<AccountUser>, 'fullName' | 'dob' | 'avatarUrl' | 'phone' | 'location' | 'bio'>, updatedAt: string): Promise<void>;
   updatePassword(userId: string, passwordHash: string, updatedAt: string): Promise<void>;
   createSession(session: SessionRecord): Promise<void>;
   findSessionByTokenHash(tokenHash: string): Promise<SessionRecord | undefined>;

@@ -1,4 +1,4 @@
-export interface User { id: string; email: string; fullName: string; dob: string | null; avatarUrl: string | null }
+export interface User { id: string; email: string; fullName: string; dob: string | null; avatarUrl: string | null; phone: string | null; location: string | null; bio: string | null }
 export interface Project { id: string; title: string; description: string; tag: string; priority: string; status: string; progress: number; daysLeft: number; isPinned: boolean; members: string[]; updatedAt: string }
 export interface ProjectTask { id: string; projectId: string; title: string; priority: string; dueDate: string | null; status: string; isDone: boolean; assignee: string; estimate: string; createdAt: string; updatedAt: string }
 export interface Course { id: string; name: string; code: string; semester: string; grade: string; credits: number; progress: number; color: string }
