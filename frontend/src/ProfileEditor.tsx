@@ -46,7 +46,7 @@ export default function ProfileEditor({ user, onSaved, onNotice }: Props) {
   return <section className="panel profile-panel">
     <div className="panel-heading">
       <div><h3>Thông tin cá nhân</h3><p>Thông tin này được lưu trong tài khoản của bạn.</p></div>
-      {!editing && <button className="soft-button" onClick={() => setEditing(true)}><Pencil size={15}/> Chỉnh sửa hồ sơ</button>}
+      {!editing && <button type="button" className="soft-button" aria-expanded={editing} onClick={() => setEditing(true)}><Pencil size={15}/> Chỉnh sửa hồ sơ</button>}
     </div>
     {editing ? <form className="profile-form" onSubmit={event => void save(event)}>
       <label>Họ và tên<input autoComplete="name" value={draft.fullName} onChange={event => setDraft({ ...draft, fullName: event.target.value })} required maxLength={120}/></label>

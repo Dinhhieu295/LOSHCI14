@@ -21,7 +21,7 @@
 .profile-form-actions button { display: inline-flex; align-items: center; gap: 7px; }
 @media (max-width: 680px) {
   .profile-panel .panel-heading { align-items: flex-start; }
-  .profile-panel .panel-heading .soft-button { width: 38px; height: 38px; padding: 0; overflow: hidden; font-size: 0; flex: none; }
+  .profile-panel .panel-heading .soft-button { width: auto; min-height: 38px; height: auto; padding: 8px 11px; overflow: visible; font-size: 11px; line-height: 1.2; flex: none; white-space: nowrap; }
   .profile-panel .panel-heading .soft-button svg { width: 16px; height: 16px; flex: none; }
   .profile-summary { grid-template-columns: 42px 1fr; }
   .profile-details { grid-column: 2; }
