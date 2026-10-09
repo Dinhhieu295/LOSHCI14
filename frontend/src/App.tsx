@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CalendarDays, Check, ChevronDown,
   CircleHelp, Clock3, Coins, Compass, FolderKanban, GraduationCap, LayoutDashboard,
-  Leaf, LogOut, Menu, Moon, Plus, Search, Sparkles, Sprout, Sun, Target, TrendingUp,
+  Leaf, LogOut, Menu, Moon, Plus, Sparkles, Sprout, Sun, Target, TrendingUp,
   Eye, EyeOff, X, Zap,
 } from 'lucide-react';
 import { api, getToken, setToken, signIn, type Assignment, type Course, type PersonalState, type Project, type ProjectTask, type StudySummary, type User } from './api';
 import ProjectsPage from './ProjectsPage';
 import ProfileEditor from './ProfileEditor';
+import GlobalSearch, { type SearchTarget } from './GlobalSearch';
 import './profile.css';
 
 type Section = 'overview' | 'projects' | 'study' | 'personal';
@@ -32,6 +33,7 @@ export default function App() {
   const [personal, setPersonal] = useState<PersonalState | null>(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
+  const [searchTarget, setSearchTarget] = useState<SearchTarget | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -96,6 +98,7 @@ export default function App() {
     setToken(result.token); setUser(result.user);
   };
   const logout = async () => { try { await api('/auth/logout', { method: 'POST' }); } catch { /* local session is still cleared */ } setToken(null); setUser(null); };
+  const openSearchTarget = (target: SearchTarget) => { setSearchTarget(target); setSection('projects'); };
 
   if (!authReady) return <div className="loading-screen"><div className="brand-mark"><Leaf size={20} /></div><span>Đang mở LifeOS…</span></div>;
   if (!user) return <AuthScreen onSubmit={handleLogin} />;
@@ -112,11 +115,11 @@ export default function App() {
     {mobileNav && <button className="nav-scrim" onClick={() => setMobileNav(false)} aria-label="Đóng menu" />}
 
     <main className="main-area">
-      <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)} aria-label="Mở menu"><Menu size={20} /></button><div className="breadcrumb"><span>LifeOS</span><span className="crumb-slash">/</span><strong>{navItems.find((item) => item.id === section)?.label}</strong></div></div><div className="topbar-right"><div className="date-chip"><CalendarDays size={15} /><span>{today}</span></div><button className="icon-button appearance-toggle" type="button" aria-label={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} title={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button><button className="icon-button search-button" onClick={() => setNotice('Tìm kiếm sẽ sớm có mặt.')} aria-label="Tìm kiếm"><Search size={18} /></button><div className="top-avatar">{user.fullName.slice(0, 1).toUpperCase()}</div></div></header>
+      <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)} aria-label="Mở menu"><Menu size={20} /></button><div className="breadcrumb"><span>LifeOS</span><span className="crumb-slash">/</span><strong>{navItems.find((item) => item.id === section)?.label}</strong></div></div><div className="topbar-right"><div className="date-chip"><CalendarDays size={15} /><span>{today}</span></div><button className="icon-button appearance-toggle" type="button" aria-label={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} title={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button><GlobalSearch projects={projects} onSelect={openSearchTarget} /><div className="top-avatar">{user.fullName.slice(0, 1).toUpperCase()}</div></div></header>
       <div className="page-content">
         {notice && <div className="toast"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Đóng"><X size={15} /></button></div>}
         {section === 'overview' && <Overview user={user} greeting={greeting} projects={projects} courses={courses} assignments={assignments} summary={summary} personal={personal} loading={loading} onNavigate={setSection} onRefresh={loadData} />}
-        {section === 'projects' && <ProjectsPage projects={projects} loading={loading} refresh={loadData} onNotice={setNotice} />}
+        {section === 'projects' && <ProjectsPage projects={projects} loading={loading} refresh={loadData} onNotice={setNotice} openTarget={searchTarget} onTargetOpened={() => setSearchTarget(null)} />}
         {section === 'study' && <StudyPage courses={courses} assignments={assignments} summary={summary} loading={loading} onRefresh={loadData} onNotice={setNotice} />}
         {section === 'personal' && <><ProfileEditor user={user} onSaved={setUser} onNotice={setNotice} /><PersonalPage personal={personal} onRefresh={loadData} onNotice={setNotice} /></>}
       </div>
