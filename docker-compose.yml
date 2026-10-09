@@ -1,4 +1,20 @@
 services:
+  db:
+    image: postgres:17-alpine
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: lifeos
+      POSTGRES_USER: lifeos
+      POSTGRES_PASSWORD: lifeos
+    volumes:
+      - lifeos-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lifeos -d lifeos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build:
       context: ./backend
@@ -10,11 +26,11 @@ services:
       HOST: 0.0.0.0
       PORT: 4000
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
-      DATABASE_PROVIDER: ${DATABASE_PROVIDER:-sqlite}
-      DATABASE_URL: ${DATABASE_URL:-file:./data/lifeos.sqlite}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lifeos:lifeos@db:5432/lifeos}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
-    volumes:
-      - lifeos-data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test:
@@ -39,4 +55,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  lifeos-data:
+  lifeos-postgres-data:
