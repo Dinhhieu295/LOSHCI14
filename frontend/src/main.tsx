@@ -4,6 +4,7 @@ import App from './App';
 import './styles.css';
 import './typography.css';
 import './tasks.css';
+import './dark-theme.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode><App /></React.StrictMode>,

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CalendarDays, Check, ChevronDown,
   CircleHelp, Clock3, Coins, Compass, FolderKanban, GraduationCap, LayoutDashboard,
-  Leaf, LogOut, Menu, Plus, Search, Settings2, Sparkles, Sprout, Target, TrendingUp,
+  Leaf, LogOut, Menu, Moon, Plus, Search, Sparkles, Sprout, Sun, Target, TrendingUp,
   Eye, EyeOff, X, Zap,
 } from 'lucide-react';
 import { api, getToken, setToken, signIn, type Assignment, type Course, type PersonalState, type Project, type ProjectTask, type StudySummary, type User } from './api';
@@ -20,6 +20,7 @@ const navItems: { id: Section; label: string; icon: typeof LayoutDashboard }[] =
 const today = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
 
 export default function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('lifeos_theme') === 'dark' ? 'dark' : 'light');
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [section, setSection] = useState<Section>('overview');
@@ -31,6 +32,11 @@ export default function App() {
   const [personal, setPersonal] = useState<PersonalState | null>(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('lifeos_theme', theme);
+  }, [theme]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -100,7 +106,7 @@ export default function App() {
       <div className="workspace-label">KHÔNG GIAN CỦA BẠN</div>
       <div className="workspace-switch"><div className="workspace-avatar">{user.fullName.slice(0, 1).toUpperCase()}</div><div><strong>{user.fullName}</strong><span>Không gian cá nhân</span></div><ChevronDown size={15} /></div>
       <nav className="main-nav" aria-label="Điều hướng chính">{navItems.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-item ${section === id ? 'active' : ''}`} onClick={() => { setSection(id); setMobileNav(false); }}><Icon size={18} /><span>{label}</span>{id === 'projects' && projects.length > 0 && <small>{projects.length}</small>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-spark"><Sparkles size={16} /></div><strong>Nhịp sống của bạn</strong><p>Mỗi bước nhỏ đều đưa bạn đến gần mục tiêu hơn.</p><div className="upgrade-progress"><span style={{ width: `${Math.min(100, (personal?.growthXP ?? 0) % 100)}%` }} /></div><div className="upgrade-meta"><span>{personal?.growthXP ?? 0} XP</span><span>Cấp {Math.floor((personal?.growthXP ?? 0) / 100) + 1}</span></div></div><button className="nav-item muted-nav" onClick={() => setNotice('Trợ giúp sẽ sớm có mặt.')}><CircleHelp size={18} /><span>Trợ giúp</span></button><button className="nav-item muted-nav" onClick={() => setNotice('Cài đặt hồ sơ sẽ sớm có mặt.')}><Settings2 size={18} /><span>Cài đặt</span></button></div>
+      <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-spark"><Sparkles size={16} /></div><strong>Nhịp sống của bạn</strong><p>Mỗi bước nhỏ đều đưa bạn đến gần mục tiêu hơn.</p><div className="upgrade-progress"><span style={{ width: `${Math.min(100, (personal?.growthXP ?? 0) % 100)}%` }} /></div><div className="upgrade-meta"><span>{personal?.growthXP ?? 0} XP</span><span>Cấp {Math.floor((personal?.growthXP ?? 0) / 100) + 1}</span></div></div><button className="nav-item muted-nav" onClick={() => setNotice('Trợ giúp sẽ sớm có mặt.')}><CircleHelp size={18} /><span>Trợ giúp</span></button><button className="nav-item muted-nav theme-toggle" type="button" aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}><span className="theme-toggle-icon">{theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</span><span>{theme === 'dark' ? 'Giao diện sáng' : 'Giao diện tối'}</span></button></div>
       <div className="sidebar-user"><div className="user-avatar">{user.fullName.slice(0, 1).toUpperCase()}</div><div className="user-details"><strong>{user.fullName}</strong><span>{user.email}</span></div><button className="icon-button" onClick={() => void logout()} aria-label="Đăng xuất" title="Đăng xuất"><LogOut size={17} /></button></div>
     </aside>
     {mobileNav && <button className="nav-scrim" onClick={() => setMobileNav(false)} aria-label="Đóng menu" />}
