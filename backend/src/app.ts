@@ -17,7 +17,7 @@ app.disable('x-powered-by');
 app.use(cors({ origin: config.CORS_ORIGIN.split(',').map((origin) => origin.trim()), methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json({ limit: '1mb' }));
 app.get('/health', async (_request, response, next) => {
-  try { await db.selectNoFrom((eb) => eb.val(1).as('ok')).executeTakeFirst(); response.json({ status: 'ok', database: config.DATABASE_PROVIDER }); }
+  try { await db.selectNoFrom((eb) => eb.val(1).as('ok')).executeTakeFirst(); response.json({ status: 'ok', database: 'postgres' }); }
   catch (error) { next(error); }
 });
 app.use('/api/auth', createAuthRouter(services));

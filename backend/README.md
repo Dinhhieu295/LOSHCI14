@@ -21,11 +21,23 @@ From the repository root:
 docker compose up --build -d
 ```
 
-Compose builds the API image, applies database migrations before starting the server, and persists SQLite data in the `lifeos-data` volume. Check status with `docker compose ps` and stop the service with `docker compose down` (the named data volume remains intact).
+Compose starts PostgreSQL and the API, applies database migrations before starting the server, and persists PostgreSQL data in the `lifeos-postgres-data` volume. Check status with `docker compose ps` and stop the service with `docker compose down` (the named data volume remains intact).
 
 ## Database
 
-SQLite is the default. `DATABASE_URL=file:./data/lifeos.sqlite` creates a local database under `backend/data/` with foreign keys and WAL enabled.
+The backend requires PostgreSQL. For local development, `DATABASE_URL` in `.env.example` connects to `127.0.0.1:5432`; start the database from the repository root with `docker compose up -d db`. Set `DATABASE_URL` to the PostgreSQL connection string in the deployment environment.
+
+For Render, the repository-root `render.yaml` provisions PostgreSQL, the API, and the frontend; it wires their URLs and runs `npm run db:migrate:prod` before starting the API. The Blueprint uses Render's free Postgres plan, which expires after 30 days. A newly provisioned database starts empty.
+
+## Demo data
+
+To create a local demo account with two projects and ten tasks, run after migrations:
+
+```powershell
+npm run db:seed:demo
+```
+
+Sign in with `demo@lifeos.local` / `LifeOS123!`. The script is safe to run again: it adds only missing demo projects and tasks. Task records are available from `GET /api/projects/:projectId/tasks` with the demo account's bearer token.
 
 ## Architecture
 
@@ -36,14 +48,7 @@ The request flow is `routes (API) â†’ application/services (business rules)
 - `src/infrastructure/repositories/` implements the repository interfaces with Kysely and maps database rows to application models.
 - `src/database/` configures the Kysely dialect and contains portable schema migrations.
 
-The schema and migration use portable Kysely schema builders. To switch to PostgreSQL later:
-
-1. Provision a PostgreSQL database and set `DATABASE_PROVIDER=postgres`.
-2. Set `DATABASE_URL` to its connection string.
-3. Run `npm run db:migrate` against that database.
-4. Copy data from SQLite with a one-time export/import or a dedicated migration script.
-
-The same schema migration is generated for either dialect. The data still needs to be copied between database files/servers; changing the connection string alone does not move it.
+The schema and migrations use Kysely with the PostgreSQL dialect.
 
 ## Authentication
 
@@ -63,5 +68,5 @@ All user-owned routes filter records by the authenticated user. Study resources 
 
 ## Environment
 
-Copy `.env.example` to `.env`. For deployment, set a restrictive `CORS_ORIGIN`, use a PostgreSQL connection URL if needed, and keep `.env` and database files out of version control.
+Copy `.env.example` to `.env`. Start local PostgreSQL with Docker Compose. For deployment, set a restrictive `CORS_ORIGIN` and the PostgreSQL connection URL, and keep `.env` out of version control.
 

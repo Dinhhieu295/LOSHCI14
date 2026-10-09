@@ -5,7 +5,8 @@ import {
   Leaf, LogOut, Menu, Plus, Search, Settings2, Sparkles, Sprout, Target, TrendingUp,
   Eye, EyeOff, X, Zap,
 } from 'lucide-react';
-import { api, getToken, setToken, signIn, type Assignment, type Course, type PersonalState, type Project, type StudySummary, type User } from './api';
+import { api, getToken, setToken, signIn, type Assignment, type Course, type PersonalState, type Project, type ProjectTask, type StudySummary, type User } from './api';
+import ProjectsPage from './ProjectsPage';
 
 type Section = 'overview' | 'projects' | 'study' | 'personal';
 const navItems: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
@@ -50,6 +51,32 @@ export default function App() {
   }, []);
   useEffect(() => { if (user) void loadData(); }, [user, loadData]);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''), 3600); return () => window.clearTimeout(timer); }, [notice]);
+  useEffect(() => {
+    if (!user || !projects.length) return;
+    let active = true;
+    const checkDeadlines = async () => {
+      try {
+        const groups = await Promise.all(projects.map(project => api<ProjectTask[]>(`/projects/${project.id}/tasks`)));
+        if (!active) return;
+        const now = new Date();
+        const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+        for (const task of groups.flat()) {
+          if (!task.dueDate || task.isDone || task.status === 'done') continue;
+          const [year, month, day] = task.dueDate.split('-').map(Number);
+          if (Math.round((Date.UTC(year, month - 1, day) - todayUtc) / 86_400_000) !== 1) continue;
+          const key = `lifeos:deadline-reminder:${task.id}:${task.dueDate}`;
+          if (localStorage.getItem(key)) continue;
+          const message = `“${task.title}” sẽ đến hạn ngày mai.`;
+          setNotice(`Nhắc hạn: ${message}`);
+          if ('Notification' in window && Notification.permission === 'granted') new Notification('Nhắc hạn task', { body: message, tag: key });
+          localStorage.setItem(key, new Date().toISOString());
+        }
+      } catch { /* The regular page load reports API errors. */ }
+    };
+    void checkDeadlines();
+    const timer = window.setInterval(() => void checkDeadlines(), 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [user, projects]);
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -114,12 +141,6 @@ function ProjectRow({ project, index }: { project: Project; index: number }) { r
 function AssignmentRow({ item, courses }: { item: Assignment; courses: Course[] }) { const course = courses.find(c=>c.id===item.courseId); return <div className="assignment-row"><div className={`assignment-check ${item.priority.toLowerCase()}`}><span/></div><div className="assignment-copy"><strong>{item.title}</strong><span>{course?.name ?? 'Bài tập'} · {item.priority === 'High' ? 'Ưu tiên cao' : item.priority === 'Low' ? 'Ưu tiên thấp' : 'Ưu tiên vừa'}</span></div><span className="assignment-date">{formatDate(item.deadline)}</span></div>; }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('vi-VN',{day:'2-digit',month:'short'}).format(date); }
 function EmptyState({ icon: Icon, title, text, action, onClick }: { icon: typeof Check; title: string; text: string; action?: string; onClick?:()=>void }) { return <div className="empty-state"><div><Icon size={19}/></div><strong>{title}</strong><span>{text}</span>{action&&<button className="text-button" onClick={onClick}>{action}<ArrowRight size={14}/></button>}</div>; }
-
-function ProjectsPage({ projects, loading, refresh, onNotice }: { projects: Project[]; loading: boolean; refresh:()=>Promise<void>; onNotice:(s:string)=>void }) {
-  const [showForm,setShowForm]=useState(false); const [title,setTitle]=useState(''); const [description,setDescription]=useState(''); const [busy,setBusy]=useState(false);
-  const create=async(e:React.FormEvent)=>{e.preventDefault();setBusy(true);try{await api('/projects',{method:'POST',body:JSON.stringify({title,description})});setTitle('');setDescription('');setShowForm(false);await refresh();onNotice('Đã tạo dự án mới.');}catch(err){onNotice(err instanceof Error?err.message:'Không tạo được dự án.');}finally{setBusy(false);}};
-  return <><PageHeading eyebrow="LẬP KẾ HOẠCH" title="Dự án của bạn" subtitle="Chia mục tiêu lớn thành những bước nhỏ có thể hoàn thành." action={<button className="primary-button" onClick={()=>setShowForm(!showForm)}><Plus size={17}/> Tạo dự án</button>}/>{showForm&&<form className="create-project panel" onSubmit={(e)=>void create(e)}><div className="create-project-head"><div><h3>Dự án mới</h3><p>Bắt đầu bằng một cái tên bạn yêu thích.</p></div><button type="button" className="icon-button" onClick={()=>setShowForm(false)}><X size={17}/></button></div><div className="form-row"><input autoFocus placeholder="Tên dự án" value={title} onChange={e=>setTitle(e.target.value)} required maxLength={200}/><input placeholder="Mô tả ngắn (không bắt buộc)" value={description} onChange={e=>setDescription(e.target.value)} maxLength={10000}/><button className="primary-button" disabled={busy}>{busy?'Đang tạo…':'Tạo dự án'}</button></div></form>}{loading&&<div className="loading-bar"><span/></div>}<div className="projects-grid">{projects.map((project,index)=><article className="project-card" key={project.id}><div className="project-card-top"><div className={`project-symbol project-symbol-${index%3}`}><FolderKanban size={19}/></div><span className="project-status"><i className={`status-dot status-${project.status.toLowerCase()}`}/>{project.status}</span></div><span className="project-card-tag">{project.tag||'DỰ ÁN CÁ NHÂN'}</span><h3>{project.title}</h3><p>{project.description||'Một hành trình mới đang bắt đầu.'}</p><div className="project-card-progress"><div className="progress-label"><span>Tiến độ</span><strong>{project.progress}%</strong></div><div className="progress-track"><span style={{width:`${project.progress}%`}}/></div></div><div className="project-card-foot"><span><CalendarDays size={14}/>{project.daysLeft ? `${project.daysLeft} ngày còn lại` : 'Đang thực hiện'}</span><span className="member-stack">{project.members.slice(0,3).map((m,i)=><i key={`${m}-${i}`}>{m.slice(0,1).toUpperCase()}</i>)}</span></div></article>)}</div>{!projects.length&&!loading&&<div className="panel"><EmptyState icon={FolderKanban} title="Chưa có dự án nào" text="Tạo dự án đầu tiên để đưa mục tiêu vào thực tế." action="Tạo dự án" onClick={()=>setShowForm(true)}/></div>}</>;
-}
 
 function StudyPage({ courses, assignments, summary, loading, onRefresh, onNotice }: { courses: Course[]; assignments: Assignment[]; summary: StudySummary|null; loading:boolean; onRefresh:()=>Promise<void>; onNotice:(s:string)=>void }) {
   const [showForm,setShowForm]=useState(false); const [name,setName]=useState(''); const [code,setCode]=useState(''); const [busy,setBusy]=useState(false);

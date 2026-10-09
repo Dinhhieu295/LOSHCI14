@@ -1,11 +1,13 @@
 export interface User { id: string; email: string; fullName: string; dob: string | null; avatarUrl: string | null }
 export interface Project { id: string; title: string; description: string; tag: string; priority: string; status: string; progress: number; daysLeft: number; isPinned: boolean; members: string[]; updatedAt: string }
+export interface ProjectTask { id: string; projectId: string; title: string; priority: string; dueDate: string | null; status: string; isDone: boolean; assignee: string; estimate: string; createdAt: string; updatedAt: string }
 export interface Course { id: string; name: string; code: string; semester: string; grade: string; credits: number; progress: number; color: string }
 export interface Assignment { id: string; title: string; deadline: string; status: string; priority: string; courseId: string | null }
 export interface StudySummary { gpa: number; activeCourses: number; totalStudyHours: number; targetStudyHours: number; pendingAssignments: number; assignments: number }
 export interface PersonalState { coins: number; growthXP: number; streak: number; lastLoginDate: string; selectedSeed: string; shopItems: unknown[]; history: unknown[] }
 
 const TOKEN_KEY = 'lifeos_token';
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (token: string | null) => token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY);
 
@@ -14,7 +16,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const token = getToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`/api${path}`, { ...options, headers });
+  const response = await fetch(`${API_BASE_URL}/api${path}`, { ...options, headers });
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
   if (!response.ok) {

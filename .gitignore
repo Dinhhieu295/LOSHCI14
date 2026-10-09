@@ -30,6 +30,3 @@ src/.env
 backend/.env
 backend/dist
 backend/node_modules
-backend/data
-backend/*.sqlite
-backend/*.sqlite-*
