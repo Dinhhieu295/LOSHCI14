@@ -111,3 +111,4 @@
 :root[data-theme='dark'] .auth-subtitle,
 :root[data-theme='dark'] .auth-switch { color: var(--dark-muted); }
 :root[data-theme='dark'] .theme-toggle-icon { display: grid; place-items: center; }
+.appearance-toggle { flex: none; border-radius: 9px; }
