@@ -133,6 +133,33 @@ export interface ScheduleItemsTable {
   updated_at: string;
 }
 
+export interface CourseSessionsTable {
+  id: string;
+  user_id: string;
+  course_id: string;
+  weekday: number;
+  start_time: string;
+  end_time: string;
+  period_start: number;
+  period_end: number;
+  location: string;
+  room: string;
+  color: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StudyLogsTable {
+  id: string;
+  user_id: string;
+  course_id: string | null;
+  log_date: string;
+  duration_minutes: number;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PersonalStatesTable {
   user_id: string;
   coins: number;
@@ -155,6 +182,8 @@ export interface Database {
   exams: ExamsTable;
   notes: NotesTable;
   schedule_items: ScheduleItemsTable;
+  course_sessions: CourseSessionsTable;
+  study_logs: StudyLogsTable;
   personal_states: PersonalStatesTable;
 }
 

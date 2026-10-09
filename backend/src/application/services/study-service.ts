@@ -3,11 +3,6 @@ import type { StudyItem, StudyResourceName, StudySummary } from '../models.js';
 import type { StudyRepository } from '../ports/repositories.js';
 import { ApplicationError } from '../errors.js';
 
-const gradeScale: Record<string, number> = {
-  'A+': 4, A: 4, 'A-': 3.7, 'B+': 3.3, B: 3, 'B-': 2.7,
-  'C+': 2.3, C: 2, 'C-': 1.7, 'D+': 1.3, D: 1, F: 0,
-};
-
 export class StudyService {
   constructor(private readonly repository: StudyRepository) {}
 
@@ -40,12 +35,8 @@ export class StudyService {
       this.repository.listStudyItems(userId, 'assignments'),
     ]);
     const courses = semester ? allCourses.filter((course) => course.semester === semester) : allCourses;
-    const graded = courses.filter((course) => typeof course.grade === 'string' && gradeScale[course.grade] !== undefined);
-    const credits = graded.reduce((sum, course) => sum + Number(course.credits ?? 0), 0);
-    const qualityPoints = graded.reduce((sum, course) => sum + Number(course.credits ?? 0) * gradeScale[String(course.grade)]!, 0);
     return {
       semester: semester ?? null,
-      gpa: credits ? Number((qualityPoints / credits).toFixed(2)) : 0,
       activeCourses: courses.filter((course) => course.status === 'Active').length,
       totalStudyHours: courses.reduce((sum, course) => sum + Number(course.studyHours ?? 0), 0),
       targetStudyHours: courses.reduce((sum, course) => sum + Number(course.aimStudyHours ?? 0), 0),

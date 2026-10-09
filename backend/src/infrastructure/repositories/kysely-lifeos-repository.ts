@@ -12,6 +12,8 @@ const studyResources = {
   exams: { table: 'exams', fields: { title: 'title', courseId: 'course_id', date: 'date', type: 'type', weight: 'weight', prepProgress: 'prep_progress' } },
   notes: { table: 'notes', fields: { title: 'title', courseId: 'course_id', content: 'content', date: 'note_date', tags: 'tags_json' } },
   schedule: { table: 'schedule_items', fields: { title: 'title', time: 'time', color: 'color', date: 'schedule_date' } },
+  'course-sessions': { table: 'course_sessions', fields: { courseId: 'course_id', weekday: 'weekday', startTime: 'start_time', endTime: 'end_time', periodStart: 'period_start', periodEnd: 'period_end', location: 'location', room: 'room', color: 'color' } },
+  'study-logs': { table: 'study_logs', fields: { courseId: 'course_id', date: 'log_date', durationMinutes: 'duration_minutes', note: 'note' } },
 } as const;
 
 function mapAccount(row: Record<string, any>): AccountUser {

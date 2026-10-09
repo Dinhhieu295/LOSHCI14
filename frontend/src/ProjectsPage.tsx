@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Bell, BellRing, CalendarDays, CheckCircle2, ChevronDown, Circle, FolderKanban, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Bell, BellOff, BellRing, CalendarDays, CheckCircle2, ChevronDown, Circle, FolderKanban, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { api, type Project, type ProjectTask } from './api';
 import type { SearchTarget } from './GlobalSearch';
 
-type Props = { projects: Project[]; loading: boolean; refresh: () => Promise<void>; onNotice: (message: string) => void; openTarget: SearchTarget | null; onTargetOpened: () => void };
+type Props = { projects: Project[]; loading: boolean; refresh: () => Promise<void>; onNotice: (message: string) => void; openTarget: SearchTarget | null; onTargetOpened: () => void; remindersEnabled: boolean; onToggleReminders: (enabled: boolean) => void };
 type Draft = { title: string; dueDate: string; priority: string };
 const emptyDraft: Draft = { title: '', dueDate: '', priority: 'Medium' };
 const reminderKey = (task: ProjectTask) => `lifeos:deadline-reminder:${task.id}:${task.dueDate}`;
@@ -21,7 +21,7 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat('vi-VN', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(year, month - 1, day));
 }
 
-export default function ProjectsPage({ projects, loading, refresh, onNotice, openTarget, onTargetOpened }: Props) {
+export default function ProjectsPage({ projects, loading, refresh, onNotice, openTarget, onTargetOpened, remindersEnabled, onToggleReminders }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -63,10 +63,27 @@ export default function ProjectsPage({ projects, loading, refresh, onNotice, ope
     finally { setBusy(false); }
   };
 
+  const deleteProject = async (project: Project) => {
+    if (!window.confirm(`Xóa dự án “${project.title}” cùng toàn bộ task bên trong?`)) return;
+    try {
+      await api(`/projects/${project.id}`, { method: 'DELETE' });
+      for (const task of tasksByProject[project.id] ?? []) localStorage.removeItem(reminderKey(task));
+      await refresh();
+      onNotice('Đã xóa dự án.');
+    } catch (error) { onNotice(error instanceof Error ? error.message : 'Không xóa được dự án.'); }
+  };
+
   const enableReminders = async () => {
-    if (!('Notification' in window)) { setPermission('unsupported'); onNotice('Trình duyệt này chưa hỗ trợ thông báo.'); return; }
+    if (!('Notification' in window)) { setPermission('unsupported'); onNotice('Trình duyệt này chưa hỗ trợ thông báo ngoài trình duyệt; nhắc hạn trong LifeOS đã bật.'); return; }
     const result = await Notification.requestPermission(); setPermission(result);
-    onNotice(result === 'granted' ? 'Đã bật thông báo. LifeOS nhắc trước hạn một ngày khi ứng dụng đang mở.' : 'Bạn chưa cấp quyền thông báo; nhắc hạn vẫn xuất hiện trong LifeOS khi mở trang dự án.');
+    onNotice(result === 'granted' ? 'Đã bật nhắc hạn. LifeOS nhắc trước hạn một ngày khi ứng dụng đang mở.' : 'Nhắc hạn trong LifeOS đã bật; bạn chưa cấp quyền thông báo ngoài trình duyệt.');
+  };
+
+  const toggleReminders = () => {
+    const enabled = !remindersEnabled;
+    onToggleReminders(enabled);
+    if (enabled) void enableReminders();
+    else onNotice('Đã tắt nhắc hạn.');
   };
 
   const addTask = async (projectId: string, event: FormEvent) => {
@@ -104,7 +121,7 @@ export default function ProjectsPage({ projects, loading, refresh, onNotice, ope
   };
 
   return <>
-    <div className="page-heading"><div><div className="eyebrow"><span/> LẬP KẾ HOẠCH</div><h1>Dự án của bạn</h1><p>Chia mục tiêu lớn thành những bước nhỏ có thể hoàn thành.</p></div><div className="project-page-actions"><button className="soft-button" onClick={() => void enableReminders()} disabled={permission === 'unsupported'}>{permission === 'granted' ? <BellRing size={16}/> : <Bell size={16}/>} {permission === 'granted' ? 'Đã bật nhắc hạn' : 'Bật nhắc hạn'}</button><button className="primary-button" onClick={() => setShowForm(value => !value)}><Plus size={17}/> Tạo dự án</button></div></div>
+    <div className="page-heading"><div><div className="eyebrow"><span/> LẬP KẾ HOẠCH</div><h1>Dự án của bạn</h1><p>Chia mục tiêu lớn thành những bước nhỏ có thể hoàn thành.</p></div><div className="project-page-actions"><button className="soft-button" type="button" title={remindersEnabled ? 'Tắt nhắc hạn task' : 'Bật nhắc hạn task'} aria-label={remindersEnabled ? 'Tắt nhắc hạn task' : 'Bật nhắc hạn task'} aria-pressed={remindersEnabled} onClick={toggleReminders}>{remindersEnabled ? (permission === 'granted' ? <BellRing size={16}/> : <BellOff size={16}/>) : <Bell size={16}/>} {remindersEnabled ? 'Tắt nhắc hạn' : 'Bật nhắc hạn'}</button><button className="primary-button" onClick={() => setShowForm(value => !value)}><Plus size={17}/> Tạo dự án</button></div></div>
     {showForm && <form className="create-project panel" onSubmit={event => void createProject(event)}><div className="create-project-head"><div><h3>Dự án mới</h3><p>Bắt đầu bằng một cái tên bạn yêu thích.</p></div><button type="button" className="icon-button" onClick={() => setShowForm(false)} aria-label="Đóng"><X size={17}/></button></div><div className="form-row"><input autoFocus placeholder="Tên dự án" value={title} onChange={event => setTitle(event.target.value)} required maxLength={200}/><input placeholder="Mô tả ngắn (không bắt buộc)" value={description} onChange={event => setDescription(event.target.value)} maxLength={10000}/><button className="primary-button" disabled={busy}>{busy ? 'Đang tạo…' : 'Tạo dự án'}</button></div></form>}
     {loading && <div className="loading-bar"><span/></div>}
     <div className="projects-grid">{projects.map((project, index) => {
@@ -113,7 +130,7 @@ export default function ProjectsPage({ projects, loading, refresh, onNotice, ope
       const isExpanded = expanded === project.id;
       const progress = tasks.length ? Math.round(completed / tasks.length * 100) : project.progress;
       return <article id={`project-${project.id}`} className={`project-card ${isExpanded ? 'project-card-expanded' : ''}`} key={project.id}>
-        <div className="project-card-top"><div className={`project-symbol project-symbol-${index % 3}`}><FolderKanban size={19}/></div><span className="project-status"><i className={`status-dot status-${project.status.toLowerCase()}`}/>{project.status}</span></div><span className="project-card-tag">{project.tag || 'DỰ ÁN CÁ NHÂN'}</span><h3>{project.title}</h3><p>{project.description || 'Một hành trình mới đang bắt đầu.'}</p>
+        <div className="project-card-top"><div className={`project-symbol project-symbol-${index % 3}`}><FolderKanban size={19}/></div><span className="project-status"><i className={`status-dot status-${project.status.toLowerCase()}`}/>{project.status}</span><button className="icon-button project-delete" type="button" title="Xóa dự án" aria-label={`Xóa dự án ${project.title}`} onClick={() => void deleteProject(project)}><Trash2 size={16}/></button></div><span className="project-card-tag">{project.tag || 'DỰ ÁN CÁ NHÂN'}</span><h3>{project.title}</h3><p>{project.description || 'Một hành trình mới đang bắt đầu.'}</p>
         <div className="project-card-progress"><div className="progress-label"><span>Tiến độ task</span><strong>{progress}%</strong></div><div className="progress-track"><span style={{ width: `${progress}%` }}/></div></div><div className="project-card-foot"><span><CalendarDays size={14}/>{tasks.length} task · {completed} hoàn thành</span><span className="member-stack">{project.members.slice(0, 3).map((member, i) => <i key={`${member}-${i}`}>{member.slice(0, 1).toUpperCase()}</i>)}</span></div>
         <button className="task-toggle" type="button" aria-expanded={isExpanded} onClick={() => setExpanded(isExpanded ? null : project.id)}>{isExpanded ? 'Thu gọn task' : 'Quản lý task'} <ChevronDown className={isExpanded ? 'rotate' : ''} size={16}/></button>
         {isExpanded && <div className="task-manager"><div className="task-manager-heading"><strong>Công việc trong dự án <span>{tasks.length} task</span></strong><span>Nhắc hạn trước 1 ngày</span></div>

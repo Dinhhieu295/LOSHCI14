@@ -1,9 +1,11 @@
 export interface User { id: string; email: string; fullName: string; dob: string | null; avatarUrl: string | null; phone: string | null; location: string | null; bio: string | null }
 export interface Project { id: string; title: string; description: string; tag: string; priority: string; status: string; progress: number; daysLeft: number; isPinned: boolean; members: string[]; updatedAt: string }
 export interface ProjectTask { id: string; projectId: string; title: string; priority: string; dueDate: string | null; status: string; isDone: boolean; assignee: string; estimate: string; createdAt: string; updatedAt: string }
-export interface Course { id: string; name: string; code: string; semester: string; grade: string; credits: number; progress: number; color: string }
+export interface Course { id: string; name: string; code: string; semester: string; instructor: string; grade: string; credits: number; progress: number; color: string }
+export interface CourseSession { id: string; courseId: string; weekday: number; startTime: string; endTime: string; periodStart: number; periodEnd: number; location: string; room: string; color: string }
+export interface StudyLog { id: string; courseId: string | null; date: string; durationMinutes: number; note: string }
 export interface Assignment { id: string; title: string; deadline: string; status: string; priority: string; courseId: string | null }
-export interface StudySummary { gpa: number; activeCourses: number; totalStudyHours: number; targetStudyHours: number; pendingAssignments: number; assignments: number }
+export interface StudySummary { activeCourses: number; totalStudyHours: number; targetStudyHours: number; pendingAssignments: number; assignments: number }
 export interface PersonalState { coins: number; growthXP: number; streak: number; lastLoginDate: string; selectedSeed: string; shopItems: unknown[]; history: unknown[] }
 
 const TOKEN_KEY = 'lifeos_token';

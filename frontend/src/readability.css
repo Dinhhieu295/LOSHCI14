@@ -1,0 +1,62 @@
+:root:not([data-theme='dark']) {
+  --muted: #5e695e;
+}
+
+:root:not([data-theme='dark']) .workspace-label,
+:root:not([data-theme='dark']) .workspace-switch span,
+:root:not([data-theme='dark']) .user-details span,
+:root:not([data-theme='dark']) .nav-item,
+:root:not([data-theme='dark']) .breadcrumb,
+:root:not([data-theme='dark']) .date-chip,
+:root:not([data-theme='dark']) .eyebrow,
+:root:not([data-theme='dark']) .page-heading p,
+:root:not([data-theme='dark']) .stat-label,
+:root:not([data-theme='dark']) .stat-foot,
+:root:not([data-theme='dark']) .project-card p,
+:root:not([data-theme='dark']) .project-card-foot,
+:root:not([data-theme='dark']) .panel-heading p,
+:root:not([data-theme='dark']) .task-copy > span,
+:root:not([data-theme='dark']) .task-due-state,
+:root:not([data-theme='dark']) .task-manager-heading strong span,
+:root:not([data-theme='dark']) .task-manager-heading > span,
+:root:not([data-theme='dark']) .course-main span,
+:root:not([data-theme='dark']) .assignment-copy span,
+:root:not([data-theme='dark']) .study-stat-card > span,
+:root:not([data-theme='dark']) .study-stat-card > small,
+:root:not([data-theme='dark']) .study-stopwatch > span,
+:root:not([data-theme='dark']) .timer-hint,
+:root:not([data-theme='dark']) .course-card-title > span,
+:root:not([data-theme='dark']) .course-card-title > small,
+:root:not([data-theme='dark']) .session-time span,
+:root:not([data-theme='dark']) .session-location,
+:root:not([data-theme='dark']) .course-no-sessions,
+:root:not([data-theme='dark']) .study-empty,
+:root:not([data-theme='dark']) .study-empty span,
+:root:not([data-theme='dark']) .heatmap-legend,
+:root:not([data-theme='dark']) .study-log-row > small,
+:root:not([data-theme='dark']) .study-overview-summary > span,
+:root:not([data-theme='dark']) .profile-panel .panel-heading p,
+:root:not([data-theme='dark']) .personal-stat > span,
+:root:not([data-theme='dark']) .personal-stat > p,
+:root:not([data-theme='dark']) .auth-subtitle,
+:root:not([data-theme='dark']) .auth-switch {
+  color: #536054;
+}
+
+:root:not([data-theme='dark']) .workspace-label,
+:root:not([data-theme='dark']) .eyebrow,
+:root:not([data-theme='dark']) .stat-label,
+:root:not([data-theme='dark']) .task-copy > span,
+:root:not([data-theme='dark']) .task-due-state,
+:root:not([data-theme='dark']) .study-stat-card > span,
+:root:not([data-theme='dark']) .study-stat-card > small,
+:root:not([data-theme='dark']) .course-card-title > small,
+:root:not([data-theme='dark']) .heatmap-legend,
+:root:not([data-theme='dark']) .personal-stat > span,
+:root:not([data-theme='dark']) .personal-stat > p {
+  font-weight: 600;
+}
+
+:root[data-theme='dark'] {
+  --dark-muted: #bec9bd;
+}

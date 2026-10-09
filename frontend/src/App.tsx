@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CalendarDays, Check, ChevronDown,
   CircleHelp, Clock3, Coins, Compass, FolderKanban, GraduationCap, LayoutDashboard,
-  Leaf, LogOut, Menu, Moon, Plus, Sparkles, Sprout, Sun, Target, TrendingUp,
+  Leaf, LogOut, Menu, Moon, Sparkles, Sprout, Sun, Target, TrendingUp,
   Eye, EyeOff, X, Zap,
 } from 'lucide-react';
-import { api, getToken, setToken, signIn, type Assignment, type Course, type PersonalState, type Project, type ProjectTask, type StudySummary, type User } from './api';
+import { api, getToken, setToken, signIn, type Assignment, type Course, type CourseSession, type PersonalState, type Project, type ProjectTask, type StudyLog, type StudySummary, type User } from './api';
 import ProjectsPage from './ProjectsPage';
 import ProfileEditor from './ProfileEditor';
 import GlobalSearch, { type SearchTarget } from './GlobalSearch';
+import StudyPage from './StudyPage';
 import './profile.css';
 
 type Section = 'overview' | 'projects' | 'study' | 'personal';
@@ -28,12 +29,20 @@ export default function App() {
   const [mobileNav, setMobileNav] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [courseSessions, setCourseSessions] = useState<CourseSession[]>([]);
+  const [studyLogs, setStudyLogs] = useState<StudyLog[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [summary, setSummary] = useState<StudySummary | null>(null);
   const [personal, setPersonal] = useState<PersonalState | null>(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
   const [searchTarget, setSearchTarget] = useState<SearchTarget | null>(null);
+  const [remindersEnabled, setRemindersEnabled] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    setRemindersEnabled(localStorage.getItem(`lifeos:deadline-reminders-enabled:${user.id}`) !== 'false');
+  }, [user?.id]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -43,11 +52,12 @@ export default function App() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [projectRows, courseRows, assignmentRows, study, state] = await Promise.all([
+      const [projectRows, courseRows, assignmentRows, sessionRows, logRows, study, state] = await Promise.all([
         api<Project[]>('/projects'), api<Course[]>('/study/courses'), api<Assignment[]>('/study/assignments'),
+        api<CourseSession[]>('/study/course-sessions'), api<StudyLog[]>('/study/study-logs'),
         api<StudySummary>('/study/summary'), api<PersonalState>('/personal/state'),
       ]);
-      setProjects(projectRows); setCourses(courseRows); setAssignments(assignmentRows); setSummary(study); setPersonal(state);
+      setProjects(projectRows); setCourses(courseRows); setAssignments(assignmentRows); setCourseSessions(sessionRows); setStudyLogs(logRows); setSummary(study); setPersonal(state);
     } catch (error) {
       if (!getToken()) { setUser(null); return; }
       setNotice(error instanceof Error ? error.message : 'Không tải được dữ liệu.');
@@ -62,7 +72,7 @@ export default function App() {
   useEffect(() => { if (user) void loadData(); }, [user, loadData]);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''), 3600); return () => window.clearTimeout(timer); }, [notice]);
   useEffect(() => {
-    if (!user || !projects.length) return;
+    if (!user || (!projects.length && !assignments.length) || !remindersEnabled) return;
     let active = true;
     const checkDeadlines = async () => {
       try {
@@ -81,12 +91,29 @@ export default function App() {
           if ('Notification' in window && Notification.permission === 'granted') new Notification('Nhắc hạn task', { body: message, tag: key });
           localStorage.setItem(key, new Date().toISOString());
         }
+        for (const assignment of assignments) {
+          if (!assignment.deadline || assignment.status === 'Completed') continue;
+          const dueDate = assignment.deadline.slice(0, 10);
+          const [year, month, day] = dueDate.split('-').map(Number);
+          if (Math.round((Date.UTC(year, month - 1, day) - todayUtc) / 86_400_000) !== 1) continue;
+          const key = `lifeos:assignment-reminder:${assignment.id}:${assignment.deadline}`;
+          if (localStorage.getItem(key)) continue;
+          const message = `Bài tập “${assignment.title}” sẽ đến hạn ngày mai.`;
+          setNotice(`Nhắc hạn: ${message}`);
+          if ('Notification' in window && Notification.permission === 'granted') new Notification('Nhắc hạn bài tập', { body: message, tag: key });
+          localStorage.setItem(key, new Date().toISOString());
+        }
       } catch { /* The regular page load reports API errors. */ }
     };
     void checkDeadlines();
     const timer = window.setInterval(() => void checkDeadlines(), 60_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [user, projects]);
+  }, [user, projects, assignments, remindersEnabled]);
+
+  const toggleReminders = (enabled: boolean) => {
+    if (user) localStorage.setItem(`lifeos:deadline-reminders-enabled:${user.id}`, String(enabled));
+    setRemindersEnabled(enabled);
+  };
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -119,8 +146,8 @@ export default function App() {
       <div className="page-content">
         {notice && <div className="toast"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Đóng"><X size={15} /></button></div>}
         {section === 'overview' && <Overview user={user} greeting={greeting} projects={projects} courses={courses} assignments={assignments} summary={summary} personal={personal} loading={loading} onNavigate={setSection} onRefresh={loadData} />}
-        {section === 'projects' && <ProjectsPage projects={projects} loading={loading} refresh={loadData} onNotice={setNotice} openTarget={searchTarget} onTargetOpened={() => setSearchTarget(null)} />}
-        {section === 'study' && <StudyPage courses={courses} assignments={assignments} summary={summary} loading={loading} onRefresh={loadData} onNotice={setNotice} />}
+        {section === 'projects' && <ProjectsPage projects={projects} loading={loading} refresh={loadData} onNotice={setNotice} openTarget={searchTarget} onTargetOpened={() => setSearchTarget(null)} remindersEnabled={remindersEnabled} onToggleReminders={toggleReminders} />}
+        {section === 'study' && <StudyPage key={user.id} userId={user.id} courses={courses} sessions={courseSessions} logs={studyLogs} assignments={assignments} summary={summary} loading={loading} onRefresh={loadData} onNotice={setNotice} />}
         {section === 'personal' && <><ProfileEditor user={user} onSaved={setUser} onNotice={setNotice} /><PersonalPage personal={personal} onRefresh={loadData} onNotice={setNotice} /></>}
       </div>
     </main>
@@ -143,7 +170,7 @@ function Overview({ user, greeting, projects, courses, assignments, summary, per
     {loading && <div className="loading-bar"><span/></div>}
     <div className="overview-banner"><div className="banner-copy"><div className="banner-kicker"><Sparkles size={15}/> TẬP TRUNG VÀO ĐIỀU QUAN TRỌNG</div><h2>Mỗi ngày một chút,<br/>bạn đang tiến bộ.</h2><p>Hãy chọn một việc nhỏ và bắt đầu ngay hôm nay.</p><button className="banner-button" onClick={() => onNavigate('projects')}>Xem kế hoạch của bạn <ArrowRight size={16}/></button></div><div className="banner-art"><div className="sun-disc"/><div className="hill hill-back"/><div className="hill hill-front"/><div className="art-plant plant-a"><span/><i/><b/></div><div className="art-plant plant-b"><span/><i/><b/></div><div className="art-star"><Sparkles size={17}/></div></div></div>
     <div className="stats-grid"><StatCard label="Dự án đang chạy" value={String(projects.filter(p => p.status.toLowerCase() !== 'completed').length).padStart(2,'0')} detail={`${projects.length} dự án tất cả`} icon={Target} tone="green" trend={<ArrowUpRight size={14}/>} /><StatCard label="Tiến độ học tập" value={`${Math.round(summary?.activeCourses ? courses.reduce((n,c)=>n+c.progress,0)/Math.max(courses.length,1) : 0)}%`} detail={`${summary?.activeCourses ?? 0} môn đang học`} icon={BookOpen} tone="violet" trend={<ArrowUpRight size={14}/>} /><StatCard label="Chuỗi ngày" value={`${personal?.streak ?? 0} ngày`} detail="Giữ nhịp mỗi ngày" icon={Zap} tone="amber" trend={<span className="trend-neutral">+1</span>} /><StatCard label="Số dư hạt giống" value={(personal?.coins ?? 0).toLocaleString('vi-VN')} detail="Sẵn sàng phát triển" icon={Coins} tone="blue" trend={<Leaf size={14}/>} /></div>
-    <div className="content-grid"><section className="panel projects-panel"><div className="panel-heading"><div><h3>Dự án của bạn</h3><p>Những điều bạn đang xây dựng</p></div><button className="text-button" onClick={() => onNavigate('projects')}>Tất cả <ArrowRight size={15}/></button></div>{projects.length ? <div className="project-list">{projects.slice(0,3).map((project,i)=><ProjectRow key={project.id} project={project} index={i}/>)}</div> : <EmptyState icon={FolderKanban} title="Chưa có dự án nào" text="Tạo dự án đầu tiên để bắt đầu sắp xếp kế hoạch." action="Tạo dự án" onClick={()=>onNavigate('projects')}/>}</section><section className="panel focus-panel"><div className="panel-heading"><div><h3>Học tập hôm nay</h3><p>Tiến độ của bạn đang đi lên</p></div><button className="round-icon" onClick={()=>onNavigate('study')}><ArrowUpRight size={17}/></button></div><div className="gpa-wrap"><div className="gpa-ring" style={{'--progress':`${Math.min(100,(summary?.gpa ?? 0)/4*100)}%`} as React.CSSProperties}><div><strong>{(summary?.gpa ?? 0).toFixed(1)}</strong><span>GPA</span></div></div><div className="gpa-info"><strong>{summary?.activeCourses ?? 0} môn học</strong><span>{summary?.pendingAssignments ?? 0} bài tập đang chờ</span><span className="positive-line"><TrendingUp size={14}/> Tiếp tục giữ nhịp nhé</span></div></div><div className="focus-divider"/><div className="focus-footer"><span><Clock3 size={15}/> Giờ học tích lũy</span><strong>{summary?.totalStudyHours ?? 0}<small> / {summary?.targetStudyHours ?? 0} giờ</small></strong></div><button className="focus-link" onClick={()=>onNavigate('study')}>Mở không gian học tập <ArrowRight size={15}/></button></section></div>
+    <div className="content-grid"><section className="panel projects-panel"><div className="panel-heading"><div><h3>Dự án của bạn</h3><p>Những điều bạn đang xây dựng</p></div><button className="text-button" onClick={() => onNavigate('projects')}>Tất cả <ArrowRight size={15}/></button></div>{projects.length ? <div className="project-list">{projects.slice(0,3).map((project,i)=><ProjectRow key={project.id} project={project} index={i}/>)}</div> : <EmptyState icon={FolderKanban} title="Chưa có dự án nào" text="Tạo dự án đầu tiên để bắt đầu sắp xếp kế hoạch." action="Tạo dự án" onClick={()=>onNavigate('projects')}/>}</section><section className="panel focus-panel"><div className="panel-heading"><div><h3>Học tập hôm nay</h3><p>Tiến độ của bạn đang đi lên</p></div><button className="round-icon" onClick={()=>onNavigate('study')}><ArrowUpRight size={17}/></button></div><div className="study-overview-summary"><strong>{summary?.activeCourses ?? 0} môn học đang hoạt động</strong><span>{summary?.pendingAssignments ?? 0} bài tập đang chờ</span><span className="positive-line"><TrendingUp size={14}/> Tiếp tục giữ nhịp nhé</span></div><div className="focus-divider"/><div className="focus-footer"><span><Clock3 size={15}/> Giờ học tích lũy</span><strong>{summary?.totalStudyHours ?? 0}<small> / {summary?.targetStudyHours ?? 0} giờ</small></strong></div><button className="focus-link" onClick={()=>onNavigate('study')}>Mở không gian học tập <ArrowRight size={15}/></button></section></div>
     <div className="bottom-grid"><section className="panel tasks-panel"><div className="panel-heading"><div><h3>Việc cần hoàn thành</h3><p>Giữ mọi thứ trong tầm tay</p></div><span className="count-pill">{assignments.filter(a=>a.status!=='Completed').length} việc</span></div>{assignments.filter(a=>a.status!=='Completed').slice(0,4).length ? assignments.filter(a=>a.status!=='Completed').slice(0,4).map(item=><AssignmentRow key={item.id} item={item} courses={courses}/>) : <EmptyState icon={Check} title="Bạn đã bắt kịp rồi!" text="Hiện không có bài tập nào đang chờ."/>}</section><section className="quote-card"><div className="quote-top"><div className="quote-mark">“</div><span>GHI NHỚ</span></div><p>Thành công là tổng của những nỗ lực nhỏ được lặp lại mỗi ngày.</p><div className="quote-bottom"><span>ROBERT COLLIER</span><div><i/><i/><i/></div></div><div className="quote-plant"><Leaf size={74}/></div></section></div>
   </>;
 }
@@ -152,15 +179,6 @@ function ProjectRow({ project, index }: { project: Project; index: number }) { r
 function AssignmentRow({ item, courses }: { item: Assignment; courses: Course[] }) { const course = courses.find(c=>c.id===item.courseId); return <div className="assignment-row"><div className={`assignment-check ${item.priority.toLowerCase()}`}><span/></div><div className="assignment-copy"><strong>{item.title}</strong><span>{course?.name ?? 'Bài tập'} · {item.priority === 'High' ? 'Ưu tiên cao' : item.priority === 'Low' ? 'Ưu tiên thấp' : 'Ưu tiên vừa'}</span></div><span className="assignment-date">{formatDate(item.deadline)}</span></div>; }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('vi-VN',{day:'2-digit',month:'short'}).format(date); }
 function EmptyState({ icon: Icon, title, text, action, onClick }: { icon: typeof Check; title: string; text: string; action?: string; onClick?:()=>void }) { return <div className="empty-state"><div><Icon size={19}/></div><strong>{title}</strong><span>{text}</span>{action&&<button className="text-button" onClick={onClick}>{action}<ArrowRight size={14}/></button>}</div>; }
-
-function StudyPage({ courses, assignments, summary, loading, onRefresh, onNotice }: { courses: Course[]; assignments: Assignment[]; summary: StudySummary|null; loading:boolean; onRefresh:()=>Promise<void>; onNotice:(s:string)=>void }) {
-  const [showForm,setShowForm]=useState(false); const [name,setName]=useState(''); const [code,setCode]=useState(''); const [busy,setBusy]=useState(false);
-  const create=async(e:React.FormEvent)=>{e.preventDefault();setBusy(true);try{await api('/study/courses',{method:'POST',body:JSON.stringify({name,code})});setName('');setCode('');setShowForm(false);await onRefresh();onNotice('Đã thêm môn học.');}catch(err){onNotice(err instanceof Error?err.message:'Không thêm được môn học.');}finally{setBusy(false);}};
-  return <><PageHeading eyebrow="HỌC TẬP CÓ CHỦ ĐÍCH" title="Không gian học tập" subtitle="Theo dõi tiến độ, môn học và những việc cần hoàn thành." action={<button className="primary-button" onClick={()=>setShowForm(!showForm)}><Plus size={17}/> Thêm môn học</button>}/>{loading&&<div className="loading-bar"><span/></div>}<div className="study-summary-grid"><div className="study-highlight"><div className="study-highlight-icon"><GraduationCap size={20}/></div><span>ĐIỂM TRUNG BÌNH</span><strong>{(summary?.gpa??0).toFixed(2)}<small> / 4.00</small></strong><div className="study-highlight-foot"><TrendingUp size={15}/> Duy trì đà tiến bộ của bạn</div></div><StatCard label="Môn đang học" value={String(summary?.activeCourses??0)} detail="Môn học đang hoạt động" icon={BookOpen} tone="violet" trend={<ArrowUpRight size={14}/>}/><StatCard label="Bài tập chờ" value={String(summary?.pendingAssignments??0)} detail={`Tổng ${summary?.assignments??0} bài tập`} icon={CalendarDays} tone="amber" trend={<Clock3 size={14}/>}/><StatCard label="Thời gian học" value={`${summary?.totalStudyHours??0}h`} detail={`Mục tiêu ${summary?.targetStudyHours??0}h`} icon={Clock3} tone="blue" trend={<TrendingUp size={14}/>}/></div>
-    {showForm&&<form className="create-project panel" onSubmit={(e)=>void create(e)}><div className="create-project-head"><div><h3>Thêm môn học</h3><p>Môn học sẽ được lưu trong tài khoản của bạn.</p></div><button type="button" className="icon-button" onClick={()=>setShowForm(false)}><X size={17}/></button></div><div className="form-row"><input autoFocus placeholder="Tên môn học" value={name} onChange={e=>setName(e.target.value)} required maxLength={160}/><input placeholder="Mã môn" value={code} onChange={e=>setCode(e.target.value)} maxLength={40}/><button className="primary-button" disabled={busy}>{busy?'Đang lưu…':'Thêm môn'}</button></div></form>}
-    <div className="content-grid study-content"><section className="panel"><div className="panel-heading"><div><h3>Môn học của bạn</h3><p>Tiến độ các môn trong học kỳ</p></div><span className="count-pill">{courses.length} môn</span></div>{courses.length?courses.map((course,i)=><div className="course-row" key={course.id}><div className={`course-badge course-${i%4}`}><BookOpen size={18}/></div><div className="course-main"><strong>{course.name}</strong><span>{course.code||course.semester||'Đang cập nhật'}</span></div><div className="course-progress"><div className="progress-label"><span>Tiến độ</span><strong>{course.progress}%</strong></div><div className="progress-track"><span style={{width:`${course.progress}%`}}/></div></div><span className="grade-pill">{course.grade||'—'}</span></div>):<EmptyState icon={BookOpen} title="Chưa có môn học" text="Thêm môn học để theo dõi tiến độ của bạn." action="Thêm môn học" onClick={()=>setShowForm(true)}/>}</section><section className="panel"><div className="panel-heading"><div><h3>Bài tập gần đây</h3><p>Việc đang cần bạn chú ý</p></div><span className="count-pill">{assignments.filter(a=>a.status!=='Completed').length} chờ</span></div>{assignments.slice(0,5).map(item=><AssignmentRow key={item.id} item={item} courses={courses}/>)}{!assignments.length&&<EmptyState icon={Check} title="Chưa có bài tập" text="Khi thêm bài tập, chúng sẽ xuất hiện ở đây."/>}</section></div>
-  </>;
-}
 
 function PersonalPage({ personal, onRefresh, onNotice }: { personal: PersonalState|null; onRefresh:()=>Promise<void>; onNotice:(s:string)=>void }) {
   const [amount,setAmount]=useState('25');const [busy,setBusy]=useState(false);

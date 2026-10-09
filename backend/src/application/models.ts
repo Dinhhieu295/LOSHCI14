@@ -69,12 +69,11 @@ export interface Task {
 export type TaskInput = Omit<Task, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>;
 export type TaskPatch = Partial<TaskInput>;
 
-export type StudyResourceName = 'courses' | 'assignments' | 'exams' | 'notes' | 'schedule';
+export type StudyResourceName = 'courses' | 'assignments' | 'exams' | 'notes' | 'schedule' | 'course-sessions' | 'study-logs';
 export type StudyItem = Record<string, unknown> & { id: string; createdAt: string; updatedAt: string };
 
 export interface StudySummary {
   semester: string | null;
-  gpa: number;
   activeCourses: number;
   totalStudyHours: number;
   targetStudyHours: number;
