@@ -1,0 +1,46 @@
+databases:
+  - name: lifeos-db
+    databaseName: lifeos
+    user: lifeos
+    region: singapore
+    plan: free
+
+services:
+  - type: web
+    name: lifeos-api
+    runtime: node
+    rootDir: backend
+    region: singapore
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run db:migrate:prod && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lifeos-db
+          property: connectionString
+      - key: SESSION_TTL_DAYS
+        value: 30
+      - key: CORS_ORIGIN
+        fromService:
+          type: web
+          name: lifeos-frontend
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: lifeos-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: lifeos-api
+          envVarKey: RENDER_EXTERNAL_URL
