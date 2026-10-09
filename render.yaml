@@ -12,7 +12,7 @@ services:
     rootDir: backend
     region: singapore
     plan: free
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run db:migrate:prod && npm start
     healthCheckPath: /health
     envVars:
