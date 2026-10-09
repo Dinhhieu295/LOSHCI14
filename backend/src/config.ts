@@ -6,8 +6,7 @@ const envSchema = z.object({
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
-  DATABASE_PROVIDER: z.enum(['sqlite', 'postgres']).default('sqlite'),
-  DATABASE_URL: z.string().default('file:./data/lifeos.sqlite'),
+  DATABASE_URL: z.string().url().default('postgresql://lifeos:lifeos@127.0.0.1:5432/lifeos'),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 });
 
