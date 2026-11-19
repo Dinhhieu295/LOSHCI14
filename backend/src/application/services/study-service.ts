@@ -30,15 +30,22 @@ export class StudyService {
   }
 
   async summary(userId: string, semester?: string): Promise<StudySummary> {
-    const [allCourses, assignments] = await Promise.all([
+    const [allCourses, allAssignments, logs] = await Promise.all([
       this.repository.listStudyItems(userId, 'courses'),
       this.repository.listStudyItems(userId, 'assignments'),
+      this.repository.listStudyItems(userId, 'study-logs'),
     ]);
     const courses = semester ? allCourses.filter((course) => course.semester === semester) : allCourses;
+    const courseIds = new Set(courses.map(course => course.id));
+    const assignments = semester ? allAssignments.filter(item => courseIds.has(String(item.courseId))) : allAssignments;
+    const studyHours = courses.reduce((sum, course) => {
+      const logged = logs.filter(log => log.courseId === course.id).reduce((minutes, log) => minutes + Number(log.durationMinutes), 0) / 60;
+      return sum + Math.max(Number(course.studyHours ?? 0), logged);
+    }, 0) + (semester ? 0 : logs.filter(log => !log.courseId).reduce((minutes, log) => minutes + Number(log.durationMinutes), 0) / 60);
     return {
       semester: semester ?? null,
       activeCourses: courses.filter((course) => course.status === 'Active').length,
-      totalStudyHours: courses.reduce((sum, course) => sum + Number(course.studyHours ?? 0), 0),
+      totalStudyHours: Number(studyHours.toFixed(1)),
       targetStudyHours: courses.reduce((sum, course) => sum + Number(course.aimStudyHours ?? 0), 0),
       pendingAssignments: assignments.filter((item) => item.status !== 'Completed').length,
       assignments: assignments.length,

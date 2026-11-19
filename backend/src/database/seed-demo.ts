@@ -4,8 +4,11 @@ import { createServices } from '../application/services/index.js';
 import { KyselyLifeOsRepository } from '../infrastructure/repositories/kysely-lifeos-repository.js';
 import type { ProjectInput, TaskInput } from '../application/models.js';
 
-const email = 'demo@lifeos.local';
-const password = 'LifeOS123!';
+// Dữ liệu mẫu dành cho sinh viên UET. Tên/mã học phần bên dưới là mock data,
+// được chọn theo các nhóm kiến thức CNTT, KHMT và Kỹ thuật máy tính phổ biến.
+const email = 'uet-demo@lifeos.local';
+const password = 'UETLifeOS123!';
+const fullName = 'Nguyễn Minh Anh (UET Demo)';
 const repository = new KyselyLifeOsRepository();
 const services = createServices(repository);
 const today = new Date();
@@ -15,72 +18,149 @@ const date = (offset: number) => {
   return value.toISOString().slice(0, 10);
 };
 
-const samples: { project: ProjectInput; tasks: TaskInput[] }[] = [
+const task = (title: string, dueOffset: number, priority: string, status: string, index: number): TaskInput => ({
+  title, status, isDone: status === 'done', priority, dueDate: date(dueOffset),
+  subtasksDone: status === 'done' ? 2 : 0, subtasksTotal: 2, assignee: 'Minh Anh',
+  estimate: `${index + 2}h`, actual: status === 'done' ? `${index + 2}h` : '0h',
+  startDay: index * 3, durationDays: 2, baselineStart: index * 3, baselineDuration: 2,
+  isMilestone: false, dependencies: [],
+});
+
+const projects: { project: ProjectInput; tasks: TaskInput[] }[] = [
   {
     project: {
-      title: 'Phát triển LifeOS',
-      description: 'Hoàn thiện trải nghiệm quản lý công việc và kế hoạch cá nhân.',
-      startDate: date(0), endDate: date(30), tag: 'Sản phẩm', priority: 'High',
-      status: 'Active', progress: 35, daysLeft: 30, isPinned: true, members: ['Bạn'],
+      title: 'UET AI Study Planner',
+      description: 'Xây dựng web app gợi ý lộ trình học và theo dõi tiến độ môn học bằng dữ liệu mẫu.',
+      startDate: date(-10), endDate: date(35), tag: 'AI / Web', priority: 'High',
+      status: 'Active', progress: 45, daysLeft: 35, isPinned: true, members: ['Minh Anh', 'Nhóm 4'],
     },
     tasks: [
-      { title: 'Phác thảo luồng người dùng', status: 'done', isDone: true, priority: 'High', dueDate: date(1) },
-      { title: 'Hoàn thiện màn hình dự án', status: 'in-progress', isDone: false, priority: 'High', dueDate: date(5) },
-      { title: 'Tạo API quản lý task', status: 'todo', isDone: false, priority: 'Medium', dueDate: date(9) },
-      { title: 'Kiểm tra đăng nhập và phân quyền', status: 'todo', isDone: false, priority: 'Medium', dueDate: date(14) },
-      { title: 'Viết hướng dẫn sử dụng', status: 'todo', isDone: false, priority: 'Low', dueDate: date(20) },
-    ].map((task, index) => ({
-      ...task, subtasksDone: 0, subtasksTotal: 0, assignee: 'Bạn', estimate: `${index + 1}h`, actual: '0h',
-      startDay: index * 3, durationDays: 2, baselineStart: index * 3, baselineDuration: 2,
-      isMilestone: false, dependencies: [],
-    })),
+      task('Phân tích yêu cầu và persona sinh viên UET', -2, 'High', 'done', 0),
+      task('Thiết kế schema môn học và lịch học', 3, 'High', 'in-progress', 1),
+      task('Xây dựng API gợi ý lộ trình học', 12, 'High', 'todo', 2),
+      task('Huấn luyện baseline recommender', 20, 'Medium', 'todo', 3),
+      task('Demo và viết báo cáo đồ án', 32, 'Medium', 'todo', 4),
+    ],
   },
   {
     project: {
-      title: 'Kế hoạch học kỳ mới',
-      description: 'Sắp xếp lịch học, bài tập và mục tiêu điểm số cho học kỳ.',
-      startDate: date(0), endDate: date(60), tag: 'Học tập', priority: 'Medium',
-      status: 'Active', progress: 20, daysLeft: 60, isPinned: false, members: ['Bạn'],
+      title: 'IoT giám sát phòng học',
+      description: 'Prototype hệ thống cảm biến nhiệt độ, độ ẩm và hiện diện cho phòng lab.',
+      startDate: date(-5), endDate: date(50), tag: 'IoT / Embedded', priority: 'High',
+      status: 'Active', progress: 25, daysLeft: 50, isPinned: false, members: ['Minh Anh', 'Nhóm 2'],
     },
     tasks: [
-      { title: 'Tổng hợp môn học trong kỳ', status: 'done', isDone: true, priority: 'Medium', dueDate: date(2) },
-      { title: 'Lập lịch học hàng tuần', status: 'in-progress', isDone: false, priority: 'High', dueDate: date(4) },
-      { title: 'Chia nhỏ bài tập lớn', status: 'todo', isDone: false, priority: 'High', dueDate: date(10) },
-      { title: 'Ôn tập kiến thức mỗi ngày', status: 'todo', isDone: false, priority: 'Medium', dueDate: date(18) },
-      { title: 'Đánh giá tiến độ cuối tháng', status: 'todo', isDone: false, priority: 'Low', dueDate: date(30) },
-    ].map((task, index) => ({
-      ...task, subtasksDone: 0, subtasksTotal: 0, assignee: 'Bạn', estimate: `${index + 1}h`, actual: '0h',
-      startDay: index * 5, durationDays: 3, baselineStart: index * 5, baselineDuration: 3,
-      isMilestone: false, dependencies: [],
-    })),
+      task('Chọn board và giao thức MQTT', -1, 'High', 'done', 0),
+      task('Lập trình firmware đọc cảm biến', 8, 'High', 'in-progress', 1),
+      task('Thiết kế dashboard theo dõi realtime', 22, 'Medium', 'todo', 2),
+      task('Kiểm thử tải và mất kết nối', 35, 'Medium', 'todo', 3),
+    ],
+  },
+  {
+    project: {
+      title: 'Thư viện số UET',
+      description: 'Thiết kế hệ thống tìm kiếm tài liệu, mượn trả và phân quyền người dùng.',
+      startDate: date(-20), endDate: date(25), tag: 'Software Engineering', priority: 'Medium',
+      status: 'Active', progress: 60, daysLeft: 25, isPinned: false, members: ['Minh Anh', 'Nhóm 6'],
+    },
+    tasks: [
+      task('Vẽ ERD và chuẩn hóa cơ sở dữ liệu', -8, 'High', 'done', 0),
+      task('Xây dựng chức năng tìm kiếm tài liệu', 2, 'High', 'in-progress', 1),
+      task('Thêm phân quyền thủ thư và sinh viên', 10, 'Medium', 'todo', 2),
+      task('Viết test API và tài liệu triển khai', 19, 'Low', 'todo', 3),
+    ],
   },
 ];
 
+const courseMocks = [
+  { name: 'Lập trình cơ bản', code: 'UET-CS101', instructor: 'TS. Lê Minh', credits: 3, progress: 72, score10: 8.2, grade: 'B+', attendance: 95, studyHours: 24, aimStudyHours: 42, color: '#4f8cff' },
+  { name: 'Cấu trúc dữ liệu và giải thuật', code: 'UET-CS201', instructor: 'PGS. Nguyễn Hà', credits: 4, progress: 58, score10: null, grade: 'N/A', attendance: 92, studyHours: 31, aimStudyHours: 60, color: '#8b5cf6' },
+  { name: 'Cơ sở dữ liệu', code: 'UET-IS202', instructor: 'ThS. Trần Anh', credits: 3, progress: 64, score10: 7.8, grade: 'B', attendance: 100, studyHours: 20, aimStudyHours: 40, color: '#22c55e' },
+  { name: 'Mạng máy tính', code: 'UET-CE301', instructor: 'TS. Phạm Quân', credits: 3, progress: 40, score10: null, grade: 'N/A', attendance: 88, studyHours: 14, aimStudyHours: 45, color: '#f59e0b' },
+  { name: 'Trí tuệ nhân tạo', code: 'UET-AI401', instructor: 'PGS. Đỗ Lan', credits: 3, progress: 35, score10: null, grade: 'N/A', attendance: 96, studyHours: 18, aimStudyHours: 50, color: '#ec4899' },
+  { name: 'Kiến trúc máy tính', code: 'UET-CE204', instructor: 'TS. Vũ Hoàng', credits: 3, progress: 80, score10: 8.6, grade: 'A', attendance: 94, studyHours: 28, aimStudyHours: 36, color: '#06b6d4' },
+];
+
 try {
-  if (config.NODE_ENV === 'production') {
-    throw new Error('Demo data is disabled in production.');
+  if (config.NODE_ENV === 'production') throw new Error('Demo data is disabled in production.');
+
+  let existingUser = await repository.findUserByEmail(email);
+  if (!existingUser) {
+    await services.auth.register({ email, password, fullName });
+    existingUser = await repository.findUserByEmail(email);
   }
+  const userId = existingUser!.id;
 
-  const existingUser = await repository.findUserByEmail(email);
-  if (!existingUser) await services.auth.register({ email, password, fullName: 'Tài khoản dùng thử' });
-
-  const userId = (await repository.findUserByEmail(email))!.id;
-  const projects = await services.projects.list(userId);
-  for (const sample of samples) {
-    let project = projects.find((item) => item.title === sample.project.title);
+  const existingProjects = await services.projects.list(userId);
+  for (const sample of projects) {
+    let project = existingProjects.find((item) => item.title === sample.project.title);
     if (!project) project = await services.projects.create(userId, sample.project);
     const existingTasks = await services.projects.listTasks(userId, project.id);
-    for (const task of sample.tasks) {
-      if (!existingTasks.some((item) => item.title === task.title)) {
-        await services.projects.createTask(userId, project.id, task);
+    for (const item of sample.tasks) {
+      if (!existingTasks.some((current) => current.title === item.title)) {
+        await services.projects.createTask(userId, project.id, item);
       }
     }
   }
 
-  console.log('Đã chuẩn bị 2 dự án và 10 task mẫu.');
+  const semester = 'HK1 2026-2027';
+  const existingCourses = await services.study.list(userId, 'courses');
+  const coursesByCode = new Map<string, string>();
+  for (const item of courseMocks) {
+    let course = existingCourses.find((current) => current.code === item.code);
+    if (!course) course = await services.study.create(userId, 'courses', { ...item, semester, status: 'Active' });
+    coursesByCode.set(item.code, String(course.id));
+  }
+
+  const seeded = async (resource: 'assignments' | 'exams' | 'notes' | 'schedule' | 'course-sessions' | 'study-logs', items: Record<string, unknown>[]) => {
+    const existing = await services.study.list(userId, resource);
+    for (const item of items) {
+      const title = typeof item.title === 'string' ? item.title : `${item.date}-${item.courseId ?? ''}`;
+      const alreadySeeded = existing.some((current) => current.title === title
+        || (resource === 'study-logs' && current.date === item.date && current.courseId === item.courseId)
+        || (resource === 'course-sessions' && current.courseId === item.courseId
+          && current.weekday === item.weekday && current.startTime === item.startTime));
+      if (!alreadySeeded) {
+        await services.study.create(userId, resource, item);
+      }
+    }
+  };
+
+  await seeded('assignments', [
+    { title: 'Bài tập lớn: Benchmark thuật toán sắp xếp', courseId: coursesByCode.get('UET-CS201'), priority: 'High', deadline: date(6), status: 'In Progress', estimatedTime: '8h' },
+    { title: 'Thiết kế ERD cho Thư viện số UET', courseId: coursesByCode.get('UET-IS202'), priority: 'High', deadline: date(10), status: 'Not Started', estimatedTime: '5h' },
+    { title: 'Lab MQTT và cảm biến nhiệt độ', courseId: coursesByCode.get('UET-CE301'), priority: 'Medium', deadline: date(15), status: 'Not Started', estimatedTime: '6h' },
+    { title: 'Mini project: Bộ phân loại ảnh', courseId: coursesByCode.get('UET-AI401'), priority: 'High', deadline: date(24), status: 'Not Started', estimatedTime: '12h' },
+  ]);
+  await seeded('exams', [
+    { title: 'Giữa kỳ Cấu trúc dữ liệu và giải thuật', courseId: coursesByCode.get('UET-CS201'), date: date(18), type: 'Midterm', weight: 30, prepProgress: 35 },
+    { title: 'Quiz Mạng máy tính', courseId: coursesByCode.get('UET-CE301'), date: date(12), type: 'Quiz', weight: 10, prepProgress: 20 },
+    { title: 'Cuối kỳ Trí tuệ nhân tạo', courseId: coursesByCode.get('UET-AI401'), date: date(42), type: 'Final', weight: 50, prepProgress: 10 },
+  ]);
+  await seeded('notes', [
+    { title: 'Ôn tập Big-O và cây nhị phân', courseId: coursesByCode.get('UET-CS201'), content: 'Tóm tắt độ phức tạp, BST, heap và các dạng bài thường gặp.', date: date(-1), tags: ['DSA', 'Ôn thi'] },
+    { title: 'Mô hình OSI và TCP/IP', courseId: coursesByCode.get('UET-CE301'), content: 'Ghi chú về tầng mạng, TCP handshake, DNS và HTTP.', date: date(-3), tags: ['Networking', 'Lab'] },
+    { title: 'Pipeline dữ liệu cho project AI', courseId: coursesByCode.get('UET-AI401'), content: 'Các bước thu thập, làm sạch, chia tập và đánh giá mô hình.', date: date(-5), tags: ['AI', 'Project'] },
+  ]);
+  await seeded('schedule', [
+    { title: 'Lập trình cơ bản', time: '08:00 - 10:00', color: '#4f8cff', date: date(1) },
+    { title: 'Cấu trúc dữ liệu và giải thuật', time: '13:30 - 15:30', color: '#8b5cf6', date: date(2) },
+    { title: 'Lab Mạng máy tính', time: '15:45 - 17:45', color: '#f59e0b', date: date(3) },
+  ]);
+  await seeded('course-sessions', [
+    { courseId: coursesByCode.get('UET-CS201'), weekday: 2, startTime: '13:30', endTime: '15:30', periodStart: 7, periodEnd: 9, location: 'UET - Nhà E3', room: 'E3-302', color: '#8b5cf6' },
+    { courseId: coursesByCode.get('UET-IS202'), weekday: 4, startTime: '08:00', endTime: '10:00', periodStart: 1, periodEnd: 3, location: 'UET - Nhà E3', room: 'E3-201', color: '#22c55e' },
+    { courseId: coursesByCode.get('UET-AI401'), weekday: 6, startTime: '09:00', endTime: '11:00', periodStart: 3, periodEnd: 5, location: 'UET - Lab AI', room: 'E3-501', color: '#ec4899' },
+  ]);
+  await seeded('study-logs', [
+    { courseId: coursesByCode.get('UET-CS201'), date: date(-1), durationMinutes: 90, note: 'Luyện bài heap và priority queue.' },
+    { courseId: coursesByCode.get('UET-AI401'), date: date(-2), durationMinutes: 120, note: 'Đọc về confusion matrix và F1-score.' },
+    { courseId: coursesByCode.get('UET-IS202'), date: date(-4), durationMinutes: 75, note: 'Thiết kế ERD cho project Thư viện số.' },
+  ]);
+
+  console.log('Đã chuẩn bị tài khoản UET demo, 3 dự án công nghệ, 6 môn học và dữ liệu học tập liên quan.');
   console.log(`Tài khoản: ${email}`);
   console.log(`Mật khẩu: ${password}`);
-  console.log('Task có thể xem qua GET /api/projects/:projectId/tasks sau khi đăng nhập.');
 } finally {
   await closeDatabase();
 }

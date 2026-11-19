@@ -9,11 +9,71 @@
 .study-stat-card > span { font-size: 11px; color: #737f73; }
 .study-stat-card > strong { margin-top: 5px; font: 700 23px var(--serif); color: #344236; }
 .study-stat-card > small { margin-top: auto; padding-top: 5px; font-size: 10px; color: #929b91; }
+
+/* Study Tabs Bar */
+.study-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.study-tabs-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.study-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #5b685b;
+  font-size: 13px;
+  font-weight: 700;
+}
+.study-tab-btn:hover {
+  background: #f3f6f0;
+  color: #3a6443;
+}
+.study-tab-btn.active {
+  background: #eaf3e8;
+  color: #3a6e46;
+}
+.study-tab-btn small {
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: rgba(79, 130, 89, 0.14);
+  font-size: 11px;
+}
+.study-quick-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.panel-heading-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
 .study-editor { margin: 0 0 16px; }
 .study-form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .study-form-grid label, .session-form label { display: flex; min-width: 0; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; color: #586657; }
-.study-form-grid input, .study-form-grid select, .session-form input, .session-form select { width: 100%; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #e4e9e2; border-radius: 8px; background: white; color: #354235; font-size: 12px; outline: none; }
-.study-form-grid input:focus, .study-form-grid select:focus, .session-form input:focus, .session-form select:focus { border-color: #9bbb95; box-shadow: 0 0 0 3px #7fa98018; }
+.study-form-grid input, .study-form-grid select, .study-form-grid textarea, .session-form input, .session-form select { width: 100%; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #e4e9e2; border-radius: 8px; background: white; color: #354235; font-size: 12px; outline: none; font-family: inherit; }
+.study-form-grid textarea { height: auto; padding: 10px; resize: vertical; }
+.study-form-grid input[type='color'] { padding: 3px 6px; cursor: pointer; }
+.study-form-grid input:focus, .study-form-grid select:focus, .study-form-grid textarea:focus, .session-form input:focus, .session-form select:focus { border-color: #9bbb95; box-shadow: 0 0 0 3px #7fa98018; }
+.note-content-field { grid-column: 1 / -1; }
 .study-editor-actions, .session-form-actions { display: flex; gap: 8px; margin-top: 13px; }
 .timer-meta-grid { grid-template-columns: minmax(180px, 1fr) 2fr; }
 .study-stopwatch { display: flex; align-items: center; flex-direction: column; gap: 8px; margin: 18px auto 0; padding: 20px; border: 1px solid #e8eee5; border-radius: 12px; background: #f8faf6; text-align: center; }
@@ -22,7 +82,7 @@
 .stopwatch-controls { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .stopwatch-controls .primary-button, .stopwatch-controls .soft-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .timer-hint { margin: 10px 0 0; text-align: center; }
-.course-list-panel, .timetable-panel, .heatmap-panel, .assignment-panel { margin-bottom: 16px; }
+.course-list-panel, .timetable-panel, .personal-schedule-panel, .heatmap-panel, .assignment-panel, .exams-panel, .notes-panel { margin-bottom: 16px; }
 .course-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .course-card { min-width: 0; overflow: hidden; padding: 0; border: 1px solid #e9ede7; border-radius: 11px; }
 .course-card-open { grid-column: 1 / -1; }
@@ -33,10 +93,25 @@
 .course-expand-icon.expanded { transform: rotate(180deg); }
 .course-card-heading { display: flex; align-items: center; gap: 10px; }
 .course-card-title { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
-.course-card-title > strong { overflow: hidden; color: #344236; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.course-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.course-card-title > strong, .course-title-row > strong { overflow: hidden; color: #344236; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.course-archived-pill { padding: 2px 7px; border-radius: 99px; background: #eee; color: #666; font-size: 10px; font-weight: 700; }
 .course-card-title > span { overflow: hidden; color: #879187; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .course-card-title > small { color: #849082; font-size: 9px; }
 .course-card-details { padding: 0 14px 14px; border-top: 1px solid #edf0eb; }
+.course-metrics-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  border-radius: 8px;
+  background: #f7f9f5;
+  font-size: 12px;
+  color: #546354;
+}
+.course-metrics-row strong { color: #2d3b2e; }
 .course-card-actions { display: flex; flex: none; }
 .course-card-actions .icon-button { width: 30px; height: 30px; }
 .course-detail-actions { justify-content: flex-end; gap: 7px; padding-top: 10px; }
@@ -61,6 +136,13 @@
 .session-form input, .session-form select { height: 34px; font-size: 11px; }
 .session-form-actions { grid-column: 1 / -1; margin-top: 1px; }
 .timetable-scroll { overflow-x: auto; }
+.timetable-scroll-hint {
+  display: none;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #6b786a;
+  font-weight: 600;
+}
 .timetable-expand-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; white-space: nowrap; font-size: 11px; }
 .timetable-expand-button svg { transition: transform .18s; }
 .timetable-expand-button svg.expanded { transform: rotate(180deg); }
@@ -85,6 +167,284 @@
 .timetable-tone-1 { border-color: #9183b4; background: #f0edf7; color: #403556; }
 .timetable-tone-2 { border-color: #c29a53; background: #faf2e2; color: #594117; }
 .timetable-tone-3 { border-color: #6c9eae; background: #e8f2f5; color: #2f4f59; }
+
+/* Personal Schedule Styles */
+.segmented-control {
+  display: inline-flex;
+  border: 1px solid #e4e9e2;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f7f9f5;
+}
+.segmented-control button {
+  border: 0;
+  background: transparent;
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #5b695b;
+}
+.segmented-control button.active {
+  background: #4f8259;
+  color: #fff;
+}
+.compact-date-input {
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #e4e9e2;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #344235;
+  background: #fff;
+}
+.schedule-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #fef3e6;
+  border: 1px solid #f5d4ad;
+  color: #945814;
+  font-size: 12px;
+  font-weight: 600;
+}
+.schedule-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+.schedule-day-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #e9ede7;
+  border-radius: 10px;
+  background: #fafbf9;
+  min-width: 0;
+}
+.schedule-day-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #eef1ec;
+}
+.schedule-day-head strong { font-size: 12px; color: #334334; }
+.schedule-day-head small { font-size: 10px; color: #798578; }
+.schedule-day-body { display: grid; gap: 6px; }
+.schedule-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  border-left: 3px solid #79a578;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+.schedule-entry.class-entry {
+  border-left-color: #8872ae;
+  background: #f5f2fa;
+}
+.schedule-entry.conflict-entry {
+  border-left-color: #d46a4e !important;
+  background: #fdf2ef;
+}
+.schedule-entry-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.schedule-entry-actions {
+  display: flex;
+  margin-left: auto;
+}
+.schedule-entry-actions .icon-button {
+  width: 22px;
+  height: 22px;
+}
+.schedule-entry strong {
+  font-size: 11px;
+  color: #2f3d30;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedule-entry small {
+  font-size: 10px;
+  color: #616e60;
+}
+.entry-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #ece7f6;
+  color: #5b4582;
+  font-size: 9px;
+  font-weight: 800;
+}
+.entry-badge.personal {
+  background: #e7f2e7;
+  color: #3a6b43;
+}
+.conflict-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #fbe3dc;
+  color: #b4482f;
+  font-size: 9px;
+  font-weight: 800;
+}
+.schedule-empty-day {
+  font-size: 11px;
+  color: #8b968a;
+  padding: 6px 0;
+}
+
+/* Exams Panel Styles */
+.exams-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.exam-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #e9ede7;
+  border-radius: 11px;
+  background: #fafbf9;
+}
+.exam-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.exam-type-badge {
+  padding: 3px 8px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 800;
+  background: #eef3ec;
+  color: #416948;
+}
+.exam-type-badge.type-midterm { background: #f2ecf9; color: #674d93; }
+.exam-type-badge.type-final { background: #fbece8; color: #b5543f; }
+.exam-type-badge.type-certification { background: #e8f2f7; color: #356985; }
+.exam-countdown {
+  font-size: 11px;
+  font-weight: 700;
+  color: #5f6c5e;
+  margin-left: auto;
+}
+.exam-countdown.due-soon { color: #b57729; }
+.exam-countdown.overdue { color: #bd5b4e; }
+.exam-card h4 {
+  margin: 2px 0 0;
+  font: 700 15px var(--serif);
+  color: #2f3d30;
+}
+.exam-meta {
+  margin: 0;
+  font-size: 12px;
+  color: #627062;
+}
+.exam-prep-section {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid #edf0eb;
+}
+.exam-prep-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+/* Notes Panel Styles */
+.note-search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #e4e9e2;
+  border-radius: 8px;
+  background: #fff;
+  color: #6f7c6e;
+}
+.note-search-box input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 12px;
+  color: #344235;
+  width: 150px;
+}
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.note-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #e9ede7;
+  border-radius: 11px;
+  background: #fafbf9;
+}
+.note-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.note-card h4 {
+  margin: 0;
+  font: 700 15px var(--serif);
+  color: #2f3d30;
+}
+.note-meta {
+  font-size: 11px;
+  color: #727f71;
+}
+.note-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #414f41;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.note-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+.note-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  border: 1px solid #dce5d9;
+  background: #eff5ed;
+  color: #446c4b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .study-empty { display: flex; min-height: 120px; align-items: center; justify-content: center; flex-direction: column; gap: 7px; color: #8c9a89; text-align: center; }
 .study-empty strong { color: #526052; font-size: 14px; }
 .study-empty span { color: #879187; font-size: 11px; }
@@ -117,13 +477,18 @@
 
 @media (max-width: 1200px) {
   .study-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .exams-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .schedule-week-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 :root[data-theme='dark'] .study-overview-summary > strong { color: var(--dark-text); }
 :root[data-theme='dark'] .study-overview-summary > span { color: var(--dark-muted); }
 :root[data-theme='dark'] .study-overview-summary .positive-line { color: #a6c99e; }
 :root[data-theme='dark'] .study-stat-card,
-:root[data-theme='dark'] .course-card { background: var(--dark-surface); border-color: var(--dark-border); }
+:root[data-theme='dark'] .course-card,
+:root[data-theme='dark'] .exam-card,
+:root[data-theme='dark'] .note-card,
+:root[data-theme='dark'] .schedule-day-card { background: var(--dark-surface); border-color: var(--dark-border); }
 :root[data-theme='dark'] .study-stat-card > span,
 :root[data-theme='dark'] .study-stat-card > small,
 :root[data-theme='dark'] .course-card-title > span,
@@ -132,19 +497,44 @@
 :root[data-theme='dark'] .session-location,
 :root[data-theme='dark'] .course-no-sessions,
 :root[data-theme='dark'] .study-empty span,
-:root[data-theme='dark'] .study-log-row { color: var(--dark-muted); }
+:root[data-theme='dark'] .study-log-row,
+:root[data-theme='dark'] .exam-meta,
+:root[data-theme='dark'] .note-meta,
+:root[data-theme='dark'] .schedule-day-head small,
+:root[data-theme='dark'] .schedule-entry small { color: var(--dark-muted); }
 :root[data-theme='dark'] .study-stat-card > strong,
 :root[data-theme='dark'] .course-card-title > strong,
+:root[data-theme='dark'] .course-title-row > strong,
 :root[data-theme='dark'] .session-time strong,
-:root[data-theme='dark'] .study-log-row > strong { color: var(--dark-text); }
+:root[data-theme='dark'] .study-log-row > strong,
+:root[data-theme='dark'] .exam-card h4,
+:root[data-theme='dark'] .note-card h4,
+:root[data-theme='dark'] .note-content,
+:root[data-theme='dark'] .schedule-day-head strong,
+:root[data-theme='dark'] .schedule-entry strong,
+:root[data-theme='dark'] .course-metrics-row strong { color: var(--dark-text); }
 :root[data-theme='dark'] .course-session-row,
-:root[data-theme='dark'] .session-form { background: var(--dark-surface-raised); }
+:root[data-theme='dark'] .session-form,
+:root[data-theme='dark'] .course-metrics-row,
+:root[data-theme='dark'] .schedule-entry { background: var(--dark-surface-raised); }
 :root[data-theme='dark'] .course-card-summary:hover { background: var(--dark-surface-raised); }
-:root[data-theme='dark'] .course-card-details { border-color: var(--dark-border); }
+:root[data-theme='dark'] .course-card-details,
+:root[data-theme='dark'] .exam-prep-section,
+:root[data-theme='dark'] .schedule-day-head { border-color: var(--dark-border); }
 :root[data-theme='dark'] .study-form-grid input,
 :root[data-theme='dark'] .study-form-grid select,
+:root[data-theme='dark'] .study-form-grid textarea,
 :root[data-theme='dark'] .session-form input,
-:root[data-theme='dark'] .session-form select { background: #141b16; border-color: var(--dark-border); color: var(--dark-text); }
+:root[data-theme='dark'] .session-form select,
+:root[data-theme='dark'] .note-search-box,
+:root[data-theme='dark'] .compact-date-input,
+:root[data-theme='dark'] .segmented-control { background: #141b16; border-color: var(--dark-border); color: var(--dark-text); }
+:root[data-theme='dark'] .note-search-box input,
+:root[data-theme='dark'] .segmented-control button { color: var(--dark-text); }
+:root[data-theme='dark'] .study-tab-btn { color: var(--dark-muted); }
+:root[data-theme='dark'] .study-tab-btn:hover,
+:root[data-theme='dark'] .study-tab-btn.active { background: #29372c; color: #c5e1bf; }
+:root[data-theme='dark'] .note-tag-chip { background: #273429; border-color: #394b3c; color: #cde2c8; }
 :root[data-theme='dark'] .study-stopwatch { background: var(--dark-surface-raised); border-color: var(--dark-border); }
 :root[data-theme='dark'] .study-stopwatch > strong { color: var(--dark-text); }
 :root[data-theme='dark'] .study-stopwatch > span,
@@ -173,7 +563,9 @@
   .study-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .session-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .weekly-heatmap { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .course-list { grid-template-columns: 1fr; }
+  .course-list, .exams-grid, .notes-grid { grid-template-columns: 1fr; }
+  .schedule-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .timetable-scroll-hint { display: block; }
 }
 
 @media (max-width: 680px) {
@@ -189,7 +581,7 @@
   .course-session-row { gap: 5px; padding: 7px; }
   .session-time { min-width: 0; flex: 1; }
   .session-location { display: none; }
-  .weekly-heatmap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .weekly-heatmap, .schedule-week-grid { grid-template-columns: 1fr; }
   .study-log-row { grid-template-columns: 55px minmax(75px, 1fr) auto 30px; gap: 5px; }
   .study-log-row > small { display: none; }
 }
