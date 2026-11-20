@@ -38,9 +38,13 @@ export interface Project {
   updatedAt: string;
 }
 
+export type TaskCategory = 'employment' | 'personal';
+
 export interface ProjectTask {
   id: string;
-  projectId: string;
+  projectId: string | null;
+  category: TaskCategory | null;
+  fixedSlot: CalendarTime | null;
   title: string;
   priority: string;
   subtasksDone: number;
@@ -49,6 +53,7 @@ export interface ProjectTask {
   assignee: string;
   status: string;
   isDone: boolean;
+  completedAt: string | null;
   estimate: string;
   actual: string;
   startDay: number;
@@ -152,28 +157,36 @@ export interface StudySummary {
   assignments: number;
 }
 
-export interface PersonalHistoryEntry {
-  id: string;
-  action: string;
-  detail: string;
-  date: string;
-}
-
-export interface PersonalShopItem {
-  id: string;
-  name: string;
-  cost: number;
-  unlocked: boolean;
-}
-
 export interface PersonalState {
-  coins: number;
-  growthXP: number;
   streak: number;
   lastLoginDate: string;
-  selectedSeed: string;
-  shopItems: unknown[];
-  history: unknown[];
+}
+
+export interface AvailabilityWindow {
+  weekday: number;
+  start: string;
+  end: string;
+}
+
+export type StudyPreference = 'more' | 'less';
+
+export interface PlanningSettings {
+  availability: AvailabilityWindow[] | null;
+  feedback: { courseId: string; preference: StudyPreference }[];
+}
+
+export interface CalendarTime {
+  date: string;
+  start: number;
+  end: number;
+}
+
+export interface CalendarTaskInput extends CalendarTime {
+  taskId: string;
+}
+
+export interface CalendarTaskBlock extends CalendarTaskInput {
+  id: string;
 }
 
 const TOKEN_KEY = 'lifeos_token';
@@ -213,14 +226,5 @@ export function changePassword(currentPassword: string, newPassword: string) {
   return api<void>('/profile/password', {
     method: 'PUT',
     body: JSON.stringify({ currentPassword, newPassword }),
-  });
-}
-
-export function updatePersonalState(
-  patch: Partial<Pick<PersonalState, 'coins' | 'growthXP' | 'streak' | 'selectedSeed' | 'shopItems' | 'history'>>,
-) {
-  return api<void>('/personal/state', {
-    method: 'PUT',
-    body: JSON.stringify(patch),
   });
 }

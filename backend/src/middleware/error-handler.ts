@@ -24,7 +24,7 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
   if (error instanceof ApplicationError) {
     const status = error.code === 'INVALID_CREDENTIALS' || error.code === 'UNAUTHENTICATED' || error.code === 'SESSION_EXPIRED' ? 401
       : error.code === 'USER_NOT_FOUND' || error.code.endsWith('_NOT_FOUND') ? 404
-      : error.code === 'ALREADY_EXISTS' ? 409
+      : error.code === 'ALREADY_EXISTS' || error.code === 'CALENDAR_CONFLICT' ? 409
       : 400;
     response.status(status).json({ error: { code: error.code, message: error.message } });
     return;

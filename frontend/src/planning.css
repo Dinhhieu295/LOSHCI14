@@ -1,0 +1,108 @@
+.planning-page {
+  --plan-text: #263a2c;
+  --plan-muted: #58675b;
+  --plan-border: #dce6db;
+  --plan-accent: #2f6a46;
+  --plan-tint: #eaf3e9;
+  --plan-surface: #fff;
+  color: var(--plan-text);
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+:root[data-theme='dark'] .planning-page {
+  --plan-text: var(--dark-text);
+  --plan-muted: var(--dark-muted);
+  --plan-border: var(--dark-border);
+  --plan-accent: #a5d9ab;
+  --plan-tint: #293b2d;
+  --plan-surface: var(--dark-surface);
+}
+
+.planning-heading h1, .planning-heading .planning-title, .planning-panel h2, .planning-panel h3, .planning-panel p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.planning-heading h1, .planning-heading .planning-title { font: 750 clamp(22px, 4vw, 28px)/1.25 var(--serif); }
+.planning-heading p, .planning-panel p { color: var(--plan-muted); font-size: 13px; line-height: 1.55; margin: 5px 0 0; }
+.planning-panel h2 { font: 700 17px/1.4 var(--serif); }
+.planning-panel h3 { font: 700 15px/1.4 var(--serif); }
+.planning-panel { min-width: 0; display: grid; gap: 13px; padding: clamp(14px, 3vw, 22px); }
+.planning-panel > .soft-button { justify-self: start; }
+.planning-nav, .planning-actions, .planning-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.planning-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--plan-border);
+  border-radius: 9px;
+  color: var(--plan-text);
+  background: var(--plan-surface);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+}
+.planning-nav button[aria-pressed='true'], .planning-actions button[aria-pressed='true'] {
+  color: var(--plan-accent);
+  background: var(--plan-tint);
+  border-color: var(--plan-accent);
+}
+.planning-page :is(button, input, select, summary):focus-visible {
+  outline: 2px solid var(--plan-accent);
+  outline-offset: 2px;
+}
+.planning-metrics, .planning-days { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); }
+.planning-metric { gap: 4px; }
+.planning-metric > strong { font-size: 30px; color: var(--plan-accent); line-height: 1.2; }
+.planning-metric small { font-size: 14px; color: var(--plan-muted); }
+.planning-semester { max-width: 280px; }
+.planning-form { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.planning-form > .planning-field { flex: 1 1 180px; }
+.planning-field { display: grid; gap: 5px; color: var(--plan-text); font-size: 13px; font-weight: 650; min-width: 0; }
+.planning-field :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid var(--plan-border);
+  border-radius: 8px;
+  color: var(--plan-text);
+  background: var(--plan-surface);
+  font: inherit;
+}
+.planning-section-head, .planning-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.planning-section-head > div, .planning-row > div { min-width: 0; }
+.planning-list, .planning-chips { list-style: none; margin: 0; padding: 0; }
+.planning-row, .planning-recommendation { border-top: 1px solid var(--plan-border); padding: 12px 0; }
+.planning-row strong { font-size: 14px; overflow-wrap: anywhere; }
+.planning-row p { margin-top: 3px; }
+.planning-pill, .planning-chips > :is(span, li) {
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--plan-accent);
+  background: var(--plan-tint);
+}
+.planning-recommendation { display: grid; gap: 8px; }
+.planning-recommendation p { margin: 0; }
+.planning-open { display: inline; border: 0; padding: 0; background: transparent; color: var(--plan-accent); text-align: left; font-weight: 750; overflow-wrap: anywhere; }
+.planning-open svg { vertical-align: middle; }
+.planning-day { margin: 0; min-width: 0; border: 1px solid var(--plan-border); border-radius: 9px; padding: 10px; }
+.planning-day legend, .planning-check { font-size: 13px; font-weight: 650; }
+.planning-check { display: flex; gap: 6px; align-items: center; }
+.planning-check input { width: 18px; height: 18px; accent-color: var(--plan-accent); }
+.planning-day-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.planning-days + .planning-actions, .planning-panel form > .planning-actions, .planning-empty > button { margin-top: 12px; }
+.planning-scale summary { font-size: 13px; cursor: pointer; font-weight: 700; }
+.planning-scale ul { margin-top: 10px; }
+.planning-page :is(.soft-button, .primary-button) { min-height: 38px; text-align: left; }
+.planning-page button:disabled:not([aria-pressed]) { cursor: default; }

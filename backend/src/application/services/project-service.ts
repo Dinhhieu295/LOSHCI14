@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Project, ProjectInput, ProjectPatch, Task, TaskInput, TaskPatch } from '../models.js';
-import type { ProjectRepository } from '../ports/repositories.js';
+import type { ProjectRepository, TaskScope } from '../ports/repositories.js';
 import { ApplicationError } from '../errors.js';
 
 export class ProjectService {
@@ -35,26 +35,55 @@ export class ProjectService {
 
   async listTasks(userId: string, projectId: string): Promise<Task[]> {
     await this.get(userId, projectId);
-    return this.repository.listTasks(projectId);
+    return this.repository.listTasks({ projectId });
   }
 
   async createTask(userId: string, projectId: string, input: TaskInput): Promise<Task> {
     await this.get(userId, projectId);
+    return this.createScopedTask({ projectId }, input);
+  }
+
+  listPersonalTasks(userId: string): Promise<Task[]> {
+    return this.repository.listTasks({ personalUserId: userId });
+  }
+
+  createPersonalTask(userId: string, input: TaskInput): Promise<Task> {
+    return this.createScopedTask({ personalUserId: userId }, input);
+  }
+
+  updatePersonalTask(userId: string, taskId: string, patch: TaskPatch): Promise<Task> {
+    return this.updateScopedTask({ personalUserId: userId }, taskId, patch);
+  }
+
+  async deletePersonalTask(userId: string, taskId: string): Promise<void> {
+    if (!(await this.repository.deleteTask({ personalUserId: userId }, taskId))) {
+      throw new ApplicationError('TASK_NOT_FOUND', 'Không tìm thấy công việc.');
+    }
+  }
+
+  private async createScopedTask(scope: TaskScope, input: TaskInput): Promise<Task> {
     if (input.dependencies.length) {
-      const tasks = await this.repository.listTasks(projectId);
+      const tasks = await this.repository.listTasks(scope);
       const existingIds = new Set(tasks.map((task) => task.id));
       if (input.dependencies.some((id) => !existingIds.has(id))) {
         throw new ApplicationError('INVALID_TASK_DEPENDENCY', 'Công việc phụ thuộc phải thuộc cùng dự án.');
       }
     }
-    return this.repository.createTask(projectId, input, randomUUID(), new Date().toISOString());
+    const isDone = input.isDone || input.status === 'done';
+    return this.repository.createTask(scope, {
+      ...input, isDone, status: isDone ? 'done' : input.status,
+    }, randomUUID(), new Date().toISOString());
   }
 
   async updateTask(userId: string, projectId: string, taskId: string, patch: TaskPatch): Promise<Task> {
     await this.get(userId, projectId);
+    return this.updateScopedTask({ projectId }, taskId, patch);
+  }
+
+  private async updateScopedTask(scope: TaskScope, taskId: string, patch: TaskPatch): Promise<Task> {
     if (!Object.keys(patch).length) throw new ApplicationError('EMPTY_UPDATE', 'Cần ít nhất một trường để cập nhật.');
     if (patch.dependencies !== undefined) {
-      const tasks = await this.repository.listTasks(projectId);
+      const tasks = await this.repository.listTasks(scope);
       const existingIds = new Set(tasks.filter((task) => task.id !== taskId).map((task) => task.id));
       if (patch.dependencies.some((id) => !existingIds.has(id))) {
         throw new ApplicationError('INVALID_TASK_DEPENDENCY', 'Công việc phụ thuộc phải thuộc cùng dự án.');
@@ -63,22 +92,26 @@ export class ProjectService {
         throw new ApplicationError('INVALID_TASK_DEPENDENCY', 'Phụ thuộc tạo thành vòng lặp giữa các công việc.');
       }
     }
-    const updated = await this.repository.updateTask(projectId, taskId, patch, new Date().toISOString());
+    if (patch.isDone !== undefined || patch.status !== undefined) {
+      const isDone = patch.isDone ?? patch.status === 'done';
+      patch = { ...patch, isDone, status: isDone ? 'done' : (patch.status && patch.status !== 'done' ? patch.status : 'todo') };
+    }
+    const updated = await this.repository.updateTask(scope, taskId, patch, new Date().toISOString());
     if (!updated) throw new ApplicationError('TASK_NOT_FOUND', 'Không tìm thấy công việc.');
     return updated;
   }
 
   async deleteTask(userId: string, projectId: string, taskId: string): Promise<void> {
     await this.get(userId, projectId);
-    if (!(await this.repository.deleteTask(projectId, taskId))) {
+    if (!(await this.repository.deleteTask({ projectId }, taskId))) {
       throw new ApplicationError('TASK_NOT_FOUND', 'Không tìm thấy công việc.');
     }
-    const remaining = await this.repository.listTasks(projectId);
+    const remaining = await this.repository.listTasks({ projectId });
     const now = new Date().toISOString();
     for (const task of remaining) {
       if (task.dependencies.includes(taskId)) {
         await this.repository.updateTask(
-          projectId,
+          { projectId },
           task.id,
           { dependencies: task.dependencies.filter((id) => id !== taskId) },
           now,

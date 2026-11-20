@@ -20,7 +20,7 @@ const projectSchema = z.object({
 });
 const projectPatch = projectSchema.partial();
 
-const taskSchema = z.object({
+export const taskSchema = z.object({
   title: z.string().trim().min(1).max(200),
   priority: z.string().max(24).default('Medium'),
   subtasksDone: z.number().int().min(0).default(0),
@@ -40,7 +40,7 @@ const taskSchema = z.object({
 });
 const taskPatch = taskSchema.partial();
 
-function pickPresentKeys<T extends Record<string, unknown>>(parsed: T, rawBody: unknown): Partial<T> {
+export function pickPresentKeys<T extends Record<string, unknown>>(parsed: T, rawBody: unknown): Partial<T> {
   if (!rawBody || typeof rawBody !== 'object') return parsed;
   const rawObj = rawBody as Record<string, unknown>;
   return Object.fromEntries(

@@ -3,7 +3,7 @@
  * Run the app first, then: npx playwright test test/lifeos.spec.ts --reporter=list
  * Optional URLs: LIFEOS_WEB_URL, LIFEOS_API_URL.
  */
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 const WEB_URL = process.env.LIFEOS_WEB_URL ?? 'http://127.0.0.1:5173';
 const API_URL = process.env.LIFEOS_API_URL ?? 'http://127.0.0.1:4000';
@@ -14,6 +14,20 @@ function dateInDays(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function nextMonday() {
+  const now = new Date();
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7 - (now.getDay() + 6) % 7, 12);
+  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+}
+
+async function mouseDrag(page: Page, grip: Locator, target: { x: number; y: number }) {
+  const source = (await grip.boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x, target.y, { steps: 12 });
+  await page.mouse.up();
 }
 
 async function apiJson<T>(
@@ -202,9 +216,9 @@ test.describe('Giao diện LifeOS', () => {
     await page.getByLabel('Phòng học').fill('A101');
     await page.getByRole('button', { name: 'Thêm lịch' }).click();
     await expect(page.getByText('Cơ sở QA')).toBeVisible();
-    await page.getByRole('button', { name: 'Xem đầy đủ' }).click();
-    await expect(page.locator('.weekly-timetable')).toBeVisible();
-
+    await page.getByRole('button', { name: 'Lịch trình', exact: true }).click();
+    await expect(page.locator('.calendar-entry[data-kind="course"]').filter({ hasText: courseName })).toBeVisible();
+    await page.locator('.calendar-entry[data-kind="course"]').filter({ hasText: courseName }).getByRole('button').click();
     await page.getByRole('button', { name: 'Sửa lịch học' }).click();
     await page.getByLabel('Phòng học').fill('A102');
     await page.getByRole('button', { name: 'Lưu lịch' }).click();
@@ -221,6 +235,7 @@ test.describe('Giao diện LifeOS', () => {
     await page.getByRole('button', { name: 'Học tập', exact: true }).click();
     await addCourseInUi(page, courseName);
 
+    await page.getByRole('tab', { name: /^Bài tập/ }).click();
     await page.getByRole('button', { name: 'Thêm bài tập' }).first().click();
     await page.getByLabel('Tên bài tập').fill(assignmentName);
     await page.getByLabel('Ngày nộp').fill(dateInDays(7));
@@ -258,6 +273,7 @@ test.describe('Giao diện LifeOS', () => {
     await addCourseInUi(page, courseName);
 
     // 1. Kỳ thi
+    await page.getByRole('tab', { name: /^Kỳ thi/ }).click();
     await page.getByRole('button', { name: 'Thêm kỳ thi' }).first().click();
     const examForm = page.locator('form.study-editor').filter({ has: page.getByLabel('Tên kỳ thi') });
     await examForm.getByLabel('Tên kỳ thi').fill(`Thi giữa kỳ ${stamp}`);
@@ -272,6 +288,7 @@ test.describe('Giao diện LifeOS', () => {
     await expect(examCard.getByText('35%').first()).toBeVisible();
 
     // 2. Ghi chú (kèm kiểm tra nội dung chứa thẻ HTML/script được hiển thị dạng văn bản an toàn)
+    await page.getByRole('tab', { name: /^Ghi chú/ }).click();
     await page.getByRole('button', { name: 'Thêm ghi chú' }).first().click();
     const noteForm = page.locator('form.study-editor').filter({ has: page.getByLabel('Tiêu đề ghi chú') });
     await noteForm.getByLabel('Tiêu đề ghi chú').fill(`Ghi chú ${stamp}`);
@@ -284,8 +301,9 @@ test.describe('Giao diện LifeOS', () => {
     await expect(noteCard.getByText('<script>window.__xss=1</script>')).toBeVisible();
 
     // 3. Lịch cá nhân: kiểm tra chặn giờ kết thúc < bắt đầu và cảnh báo trùng giờ
+    await page.getByRole('button', { name: 'Lịch trình', exact: true }).click();
     await page.getByRole('button', { name: 'Thêm sự kiện' }).first().click();
-    const schedForm = page.locator('form.study-editor').filter({ has: page.getByLabel('Tên sự kiện') });
+    const schedForm = page.getByRole('dialog', { name: 'Thêm sự kiện cá nhân' });
     await schedForm.getByLabel('Tên sự kiện').fill(`Họp nhóm ${stamp}`);
     await schedForm.getByLabel('Khung giờ (HH:MM - HH:MM)').fill('10:00 - 09:00');
     await schedForm.getByRole('button', { name: 'Thêm vào lịch' }).click();
@@ -293,11 +311,11 @@ test.describe('Giao diện LifeOS', () => {
 
     await schedForm.getByLabel('Khung giờ (HH:MM - HH:MM)').fill('08:00 - 09:30');
     await schedForm.getByRole('button', { name: 'Thêm vào lịch' }).click();
-    await expect(page.locator('.personal-schedule-panel').getByText(`Họp nhóm ${stamp}`)).toBeVisible();
+    await expect(page.locator('.calendar-entry[data-kind="personal"]').filter({ hasText: `Họp nhóm ${stamp}` })).toBeVisible();
 
     // Mở lại form thêm sự kiện trùng khung giờ để kiểm tra cảnh báo trùng lịch
     await page.getByRole('button', { name: 'Thêm sự kiện' }).first().click();
-    const schedForm2 = page.locator('form.study-editor').filter({ has: page.getByLabel('Tên sự kiện') });
+    const schedForm2 = page.getByRole('dialog', { name: 'Thêm sự kiện cá nhân' });
     await schedForm2.getByLabel('Khung giờ (HH:MM - HH:MM)').fill('08:30 - 10:00');
     await expect(schedForm2.locator('.schedule-conflict-banner')).toContainText('Cảnh báo trùng lịch');
     await schedForm2.getByRole('button', { name: 'Hủy' }).click();
@@ -305,6 +323,7 @@ test.describe('Giao diện LifeOS', () => {
 
   test('bấm giờ tự học, tạm dừng/tiếp tục và lưu study log', async ({ page }) => {
     await page.getByRole('button', { name: 'Học tập', exact: true }).click();
+    await page.getByRole('tab', { name: 'Tự học' }).click();
     await page.clock.install();
     await page.getByRole('button', { name: 'Ghi thời gian học' }).first().click();
     await page.getByLabel('Ghi chú').fill('Phiên học kiểm thử');
@@ -317,7 +336,7 @@ test.describe('Giao diện LifeOS', () => {
     await expect(page.getByText('Phiên học kiểm thử')).toBeVisible();
   });
 
-  test('sửa hồ sơ, đổi mật khẩu, chi hạt giống và điều hướng trên mobile (390px & 320px)', async ({ page }) => {
+  test('sửa hồ sơ, đổi mật khẩu và điều hướng trên mobile (390px & 320px)', async ({ page }) => {
     await page.getByRole('button', { name: 'Cá nhân' }).click();
     await page.getByRole('button', { name: 'Chỉnh sửa hồ sơ' }).click();
     await page.getByLabel('Nơi ở').fill('TP. Hồ Chí Minh');
@@ -337,9 +356,7 @@ test.describe('Giao diện LifeOS', () => {
     await page.getByRole('button', { name: 'Cập nhật mật khẩu' }).click();
     await expect(page.locator('.password-success-banner')).toContainText('Đã đổi mật khẩu thành công');
 
-    await page.getByLabel('Số hạt giống').fill('1');
-    await page.getByRole('button', { name: 'Gieo hạt giống' }).click();
-    await expect(page.getByText(/Đã sử dụng hạt giống/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Gieo hạt giống' })).toHaveCount(0);
 
     await page.setViewportSize({ width: 320, height: 640 });
     await page.getByRole('button', { name: 'Mở menu' }).click();
@@ -380,6 +397,9 @@ test.describe('Giao diện LifeOS', () => {
     await page.getByRole('tab', { name: /Kỳ thi/ }).click();
     await expect(page).toHaveURL(/tab=exams/);
 
+    await page.goBack();
+    await expect(page).toHaveURL(/\/study$/);
+    await expect(page.getByRole('tab', { name: /^Môn học/ })).toHaveAttribute('aria-selected', 'true');
     await page.goBack();
     await expect(page).toHaveURL(/\/projects/);
     await page.goForward();
@@ -476,6 +496,365 @@ test.describe('Giao diện LifeOS', () => {
     await page.getByRole('button', { name: 'Cập nhật' }).click();
     await expect(page.getByRole('heading', { name: 'Chào mừng trở lại' })).toBeVisible();
   });
+
+  test('GPA theo tín chỉ và kịch bản điểm không sửa điểm đã lưu', async ({ page, request }) => {
+    const token = (await page.evaluate(() => localStorage.getItem('lifeos_token')))!;
+    await apiJson(request, '/study/courses', token, {
+      method: 'POST', expectedStatus: 201, data: { name: 'Giải thuật A4', credits: 3, semester: 'HK1', score10: 8.5 },
+    });
+    await apiJson(request, '/study/courses', token, {
+      method: 'POST', expectedStatus: 201, data: { name: 'Mạng máy tính A4', credits: 1, semester: 'HK2', score10: 7 },
+    });
+    await page.reload();
+    await page.getByRole('button', { name: 'Học tập', exact: true }).click();
+    await page.getByRole('tab', { name: 'Phân tích GPA', exact: true }).click();
+    await expect(page).toHaveURL(/\/study\?tab=gpa$/);
+    const current = page.locator('.planning-metric').filter({ hasText: 'GPA hiện tại' });
+    await expect(current).toContainText('3,75');
+    await page.getByLabel('Học kỳ').selectOption('HK2');
+    await expect(current).toContainText('3,00');
+    await page.getByLabel('Học kỳ').selectOption('');
+    await page.getByRole('button', { name: 'Thử kịch bản' }).click();
+    await page.getByLabel('Môn học', { exact: true }).selectOption({ label: 'Mạng máy tính A4' });
+    await page.getByLabel('Điểm dự kiến (0–10)').fill('9');
+    await page.getByRole('button', { name: 'Áp dụng điểm' }).click();
+    await expect(page.locator('.planning-metric').filter({ hasText: 'GPA dự kiến' })).toContainText('4,00');
+    await expect(current).toContainText('3,75');
+    await page.setViewportSize({ width: 320, height: 720 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+  });
+
+  test('giờ trống trừ lịch bận, phản hồi được lưu và công việc hiện thời điểm hoàn thành', async ({ page, request }) => {
+    const token = (await page.evaluate(() => localStorage.getItem('lifeos_token')))!;
+    const tomorrow = dateInDays(1);
+    const weekday = ((new Date(`${tomorrow}T12:00:00`).getDay() + 6) % 7) + 1;
+    const course = await apiJson<{ id: string }>(request, '/study/courses', token, {
+      method: 'POST', expectedStatus: 201, data: { name: 'Cơ sở dữ liệu A4', credits: 3, aimStudyHours: 1 },
+    });
+    await apiJson(request, '/study/course-sessions', token, {
+      method: 'POST', expectedStatus: 201,
+      data: { courseId: course.id, weekday, startTime: '10:00', endTime: '11:00', periodStart: 1, periodEnd: 2 },
+    });
+    await apiJson(request, '/study/schedule', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Họp nhóm', date: tomorrow, time: '11:30 - 12:00' },
+    });
+    const project = await apiJson<{ id: string }>(request, '/projects', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Tiến độ A4' },
+    });
+    await apiJson(request, `/projects/${project.id}/tasks`, token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Nộp báo cáo A4', status: 'done', dueDate: tomorrow },
+    });
+
+    await page.reload();
+    await page.getByRole('button', { name: 'Học tập', exact: true }).click();
+    await page.getByRole('tab', { name: 'Gợi ý học', exact: true }).click();
+    await page.getByRole('button', { name: 'Xem giờ trống', exact: true }).click();
+    await page.getByRole('button', { name: 'Chỉnh khung giờ' }).click();
+    const labels = ['Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy', 'Chủ nhật'];
+    for (const [index, label] of labels.entries()) {
+      if (index + 1 !== weekday) await page.getByRole('checkbox', { name: `Có thể học ${label}` }).uncheck();
+    }
+    await page.getByLabel(`Bắt đầu ${labels[weekday - 1]}`).fill('09:00');
+    await page.getByLabel(`Kết thúc ${labels[weekday - 1]}`).fill('12:00');
+    await page.getByRole('button', { name: 'Lưu khung giờ' }).click();
+    await expect(page.getByText('09:00–10:00', { exact: true })).toBeVisible();
+    await expect(page.getByText('11:00–11:30', { exact: true })).toBeVisible();
+    await page.getByRole('dialog', { name: 'Khung giờ rảnh' }).getByRole('button', { name: 'Đóng', exact: true }).click();
+    await page.getByRole('button', { name: 'Học tập', exact: true }).click();
+    await page.getByRole('tab', { name: 'Gợi ý học', exact: true }).click();
+    await expect(page.getByLabel('Khung giờ gợi ý')).toContainText('09:00–10:00');
+    await page.getByRole('button', { name: 'Học ít hơn' }).click();
+    await expect(page.getByRole('button', { name: 'Học ít hơn' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByLabel('Khung giờ gợi ý')).toContainText('09:00–09:30');
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Học ít hơn' })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Công việc', exact: true }).click();
+    await page.getByRole('button', { name: 'Việc dự án', exact: true }).click();
+    await expect(page.getByText(/Xong lúc/)).toBeVisible();
+    await page.getByRole('button', { name: 'Nộp báo cáo A4' }).click();
+    await expect(page).toHaveURL(/\/projects\?project=.*&task=/);
+    await expect(page.locator('.project-task').filter({ hasText: 'Nộp báo cáo A4' })).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole('button', { name: 'Việc dự án', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('việc cá nhân và hạn mọi task theo nhiều tuần, mở đúng việc và lưu phiên cá nhân', async ({ page, request }) => {
+    const token = (await page.evaluate(() => localStorage.getItem('lifeos_token')))!;
+    const due = dateInDays(17);
+    const project = await apiJson<{ id: string }>(request, '/projects', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Dự án hạn tuần xa' },
+    });
+    await apiJson(request, `/projects/${project.id}/tasks`, token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Nộp bản thiết kế', dueDate: due },
+    });
+    await apiJson(request, `/projects/${project.id}/tasks`, token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Việc đã hoàn thành', dueDate: due, status: 'done' },
+    });
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Kế hoạch', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Công việc', exact: true }).click();
+    await page.getByRole('button', { name: 'Thêm công việc' }).click();
+    await page.getByLabel('Tên công việc').fill('Đi lấy đồ');
+    await page.getByLabel('Hạn chót (tùy chọn)').fill(due);
+    await page.getByRole('button', { name: 'Thêm công việc' }).click();
+    await expect(page.getByText('Đi lấy đồ', { exact: true })).toBeVisible();
+    const [personal] = await apiJson<{ id: string }[]>(request, '/tasks', token);
+    const other = await registerApiUser(request, `work-other-${stamp}@example.test`, 'Other Work');
+    expect(await apiJson(request, '/tasks', other.token)).toEqual([]);
+    await apiJson(request, `/tasks/${personal.id}`, other.token, {
+      method: 'PATCH', expectedStatus: 404, data: { isDone: true },
+    });
+
+    await page.getByRole('button', { name: 'Lịch trình', exact: true }).click();
+    await page.getByRole('button', { name: 'Xem 4 tuần' }).click();
+    const day = page.locator(`[data-week-date="${due}"]`);
+    await expect(day).toContainText('3 hạn');
+    await page.getByRole('button', { name: '4 tuần sau' }).click();
+    await expect(day).toHaveCount(0);
+    await page.getByRole('button', { name: '4 tuần trước' }).click();
+    await day.click();
+    const deadlines = page.locator(`[data-deadlines="${due}"]`);
+    await expect(deadlines.getByRole('button', { name: 'Hạn: Đi lấy đồ' })).toBeVisible();
+    await expect(deadlines.getByRole('button', { name: 'Hạn: Nộp bản thiết kế' })).toBeVisible();
+    await deadlines.getByRole('button', { name: 'Xem 3 hạn', exact: false }).click();
+    await expect(page.getByRole('dialog').getByText('Việc đã hoàn thành', { exact: true })).toBeVisible();
+    await page.getByRole('dialog').getByRole('button', { name: 'Đóng', exact: true }).click();
+
+    await page.getByRole('button', { name: 'Xếp giờ cho Đi lấy đồ' }).click();
+    const editor = page.getByRole('dialog', { name: 'Đi lấy đồ' });
+    await editor.getByLabel('Ngày làm việc').fill(due);
+    await editor.getByLabel('Giờ bắt đầu').fill('09:00');
+    await editor.getByRole('button', { name: 'Lưu phiên' }).click();
+    const booked = page.locator(`[data-calendar-date="${due}"] .calendar-entry[data-kind="task"]`);
+    await expect(booked).toContainText('Đi lấy đồ');
+    await page.reload();
+    await expect(booked).toContainText('Đi lấy đồ');
+    await deadlines.getByRole('button', { name: 'Hạn: Đi lấy đồ' }).click();
+    await expect(page).toHaveURL(/\/work\?task=/);
+    await expect(page.getByLabel('Tên công việc')).toHaveValue('Đi lấy đồ');
+    await page.goBack();
+    await expect(booked).toContainText('Đi lấy đồ');
+    await page.getByRole('button', { name: 'Hôm nay', exact: true }).click();
+    await expect(booked).toHaveCount(0);
+    await page.getByLabel('Chọn ngày để mở tuần').fill(due);
+    await expect(booked).toContainText('Đi lấy đồ');
+  });
+
+  test('thời khóa biểu kéo thả hai chiều, tránh lịch học và lưu bản gợi ý đã chỉnh', async ({ page, request }) => {
+    const token = (await page.evaluate(() => localStorage.getItem('lifeos_token')))!;
+    const date = nextMonday();
+    const course = await apiJson<{ id: string }>(request, '/study/courses', token, {
+      method: 'POST', expectedStatus: 201, data: { name: 'Lớp lịch kiểm thử' },
+    });
+    await apiJson(request, '/study/course-sessions', token, {
+      method: 'POST', expectedStatus: 201,
+      data: { courseId: course.id, weekday: 1, startTime: '09:00', endTime: '10:00', periodStart: 1, periodEnd: 2 },
+    });
+    await apiJson(request, '/study/schedule', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Họp cá nhân', date, time: '10:30 - 11:00' },
+    });
+    await apiJson(request, '/planning/availability', token, {
+      method: 'PUT', expectedStatus: 204, data: { windows: [{ weekday: 1, start: '09:00', end: '12:00' }] },
+    });
+    const project = await apiJson<{ id: string }>(request, '/projects', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Dự án lịch' },
+    });
+    const name = 'Viết báo cáo tuần';
+    const task = await apiJson<{ id: string }>(request, `/projects/${project.id}/tasks`, token, {
+      method: 'POST', expectedStatus: 201, data: { title: name, dueDate: date, estimate: '1h' },
+    });
+    const taskBlocks = '/calendar/task-blocks';
+    await apiJson(request, taskBlocks, token, {
+      method: 'POST', expectedStatus: 409, data: { blocks: [
+        { taskId: task.id, date, start: 660, end: 720 },
+        { taskId: task.id, date, start: 540, end: 600 },
+      ] },
+    });
+    expect(await apiJson(request, taskBlocks, token)).toEqual([]);
+
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto(`${WEB_URL}/study?tab=schedule`);
+    await expect(page.getByRole('heading', { name: 'Lịch trình' })).toBeVisible();
+    await page.getByRole('button', { name: 'Tuần sau' }).click();
+    const column = page.locator(`[data-calendar-date="${date}"]`);
+    const queue = page.getByRole('complementary', { name: 'Hàng đợi công việc' });
+    const grabFromQueue = queue.getByRole('button', { name: `Kéo ${name} vào lịch` });
+    const scheduled = column.locator('.calendar-entry[data-kind="task"]').filter({ hasText: name });
+    await expect(column.getByRole('button', { name: /Lớp lịch kiểm thử/ })).toBeVisible();
+    await expect(grabFromQueue).toBeVisible();
+    const point = async (minute: number) => {
+      const box = (await column.boundingBox())!;
+      return { x: box.x + 35, y: box.y + minute - 420 + 3 };
+    };
+    const queuePoint = async () => {
+      const box = (await queue.getByRole('heading', { name: /^Hàng đợi/ }).boundingBox())!;
+      return { x: box.x + 20, y: box.y + 9 };
+    };
+    await mouseDrag(page, grabFromQueue, await point(540));
+    await expect(page.locator('.calendar-error')).toContainText('Trùng giờ');
+    await expect(scheduled).toHaveCount(0);
+    await mouseDrag(page, grabFromQueue, await point(660));
+    await expect(scheduled).toContainText('11:00–12:00');
+    await expect(grabFromQueue).toHaveCount(0);
+
+    const scheduledGrip = scheduled.getByRole('button', { name: /^Kéo phiên/ });
+    const gripBox = (await scheduledGrip.boundingBox())!;
+    const blockBox = (await scheduled.boundingBox())!;
+    const moveTo = await point(720);
+    moveTo.y += gripBox.y + gripBox.height / 2 - blockBox.y - 3;
+    await mouseDrag(page, scheduledGrip, moveTo);
+    await expect(scheduled).toContainText('12:00–13:00');
+    await mouseDrag(page, scheduled.getByRole('button', { name: /^Kéo phiên/ }), await queuePoint());
+    await expect(grabFromQueue).toBeVisible();
+
+    await page.getByRole('button', { name: 'Gợi ý xếp lịch' }).click();
+    const drafts = column.locator('.calendar-entry[data-kind="suggestion"]');
+    await expect(drafts).toHaveCount(2);
+    await expect(drafts.first()).toContainText('10:00–10:30');
+    await expect(drafts.last()).toContainText('11:00–11:30');
+    expect(await apiJson(request, taskBlocks, token)).toEqual([]);
+    await mouseDrag(page, drafts.first().getByRole('button', { name: /^Kéo phiên/ }), await queuePoint());
+    await expect(drafts).toHaveCount(1);
+    await expect(grabFromQueue).toBeVisible();
+    await page.getByRole('button', { name: 'Lưu lịch gợi ý' }).click();
+    await expect(scheduled).toContainText('11:00–11:30');
+    await page.reload();
+    await expect(scheduled).toContainText('11:00–11:30');
+  });
+
+  test('việc làm lặp hằng tuần, việc cá nhân chỉ hiện một lần và gợi ý tránh trùng lịch', async ({ page, request }) => {
+    const token = (await page.evaluate(() => localStorage.getItem('lifeos_token')))!;
+    const date = nextMonday();
+    const nextDate = new Date(Date.parse(`${date}T12:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10);
+    await apiJson(request, '/planning/availability', token, {
+      method: 'PUT', expectedStatus: 204, data: { windows: [{ weekday: 1, start: '09:00', end: '12:00' }] },
+    });
+    const flexible = await apiJson<{ id: string }>(request, '/tasks', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Mua đồ dùng', dueDate: date, estimate: '60m' },
+    });
+    await apiJson(request, '/tasks', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Dự sinh nhật', fixedSlot: { date, start: 720, end: 780 } },
+    });
+    await apiJson(request, '/tasks', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Lấy đồ', fixedSlot: { date: nextDate, start: 840, end: 900 } },
+    });
+    await apiJson(request, '/tasks', token, {
+      method: 'POST', expectedStatus: 409,
+      data: { title: 'Ca trùng việc cá nhân tuần sau', category: 'employment', fixedSlot: { date, start: 840, end: 900 } },
+    });
+    await page.reload();
+    await page.getByRole('button', { name: 'Công việc', exact: true }).click();
+    await page.getByRole('button', { name: 'Việc làm', exact: true }).click();
+    await page.getByRole('button', { name: 'Thêm công việc' }).click();
+    await page.getByLabel('Tên công việc').fill('Đi dạy gia sư');
+    await expect(page.getByLabel('Nhóm công việc')).toHaveValue('employment');
+    await page.getByLabel('Ngày bắt đầu').fill(date);
+    await page.getByLabel('Giờ bắt đầu').fill('09:30');
+    await page.getByLabel('Giờ kết thúc').fill('10:30');
+    await page.getByRole('button', { name: 'Thêm công việc' }).click();
+    await expect(page.getByText(/Hằng tuần.*09:30–10:30/)).toBeVisible();
+    await expect(page.getByText('Mua đồ dùng', { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Việc cá nhân', exact: true }).click();
+    await expect(page.getByText('Mua đồ dùng', { exact: true })).toBeVisible();
+    await expect(page.getByText('Đi dạy gia sư', { exact: true })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Lịch trình', exact: true }).click();
+    await page.getByLabel('Chọn ngày để mở tuần').fill(date);
+    const column = page.locator(`[data-calendar-date="${date}"]`);
+    const fixed = column.locator('.calendar-entry[data-kind="fixed-task"]').filter({ hasText: 'Đi dạy gia sư' });
+    await expect(fixed).toContainText('Đi dạy gia sư');
+    await expect(column.getByRole('button', { name: /Dự sinh nhật/ })).toBeVisible();
+    await expect(fixed.getByRole('button', { name: /^Kéo/ })).toHaveCount(0);
+    const queue = page.getByRole('complementary', { name: 'Hàng đợi công việc' });
+    await expect(queue.getByText('Đi dạy gia sư', { exact: true })).toHaveCount(0);
+    await expect(queue.getByRole('button', { name: 'Xếp giờ cho Mua đồ dùng' })).toBeVisible();
+
+    await apiJson(request, '/calendar/task-blocks', token, {
+      method: 'POST', expectedStatus: 409, data: { blocks: [{ taskId: flexible.id, date: nextDate, start: 600, end: 630 }] },
+    });
+    await page.getByRole('button', { name: 'Gợi ý xếp lịch' }).click();
+    const suggested = column.locator('.calendar-entry[data-kind="suggestion"]');
+    await expect(suggested).toHaveCount(2);
+    await expect(suggested.first()).toContainText('09:00–09:30');
+    await expect(suggested.last()).toContainText('10:30–11:00');
+    await page.getByRole('button', { name: 'Tuần sau' }).click();
+    const nextColumn = page.locator(`[data-calendar-date="${nextDate}"]`);
+    const nextShift = nextColumn.getByRole('button', { name: /Đi dạy gia sư.*09:30–10:30.*Hằng tuần/ });
+    await expect(nextColumn.getByRole('button', { name: /Dự sinh nhật/ })).toHaveCount(0);
+    await nextShift.click();
+    await expect(page).toHaveURL(/\/work\?view=employment&task=/);
+    await expect(page.getByLabel('Nhóm công việc')).toHaveValue('employment');
+    await expect(page.getByLabel('Ngày bắt đầu')).toHaveValue(date);
+    await expect(page.getByLabel('Giờ bắt đầu')).toHaveValue('09:30');
+    await page.getByRole('button', { name: 'Hủy', exact: true }).click();
+    await page.getByRole('button', { name: 'Tạm dừng Đi dạy gia sư' }).click();
+    await expect(page.getByRole('button', { name: 'Tiếp tục Đi dạy gia sư' })).toBeVisible();
+    await page.getByRole('button', { name: 'Lịch trình', exact: true }).click();
+    await page.getByLabel('Chọn ngày để mở tuần').fill(nextDate);
+    await expect(nextColumn.getByRole('button', { name: /Lấy đồ/ })).toBeVisible();
+    await expect(nextShift).toHaveCount(0);
+    await page.getByRole('button', { name: 'Công việc', exact: true }).click();
+    await page.getByRole('button', { name: 'Việc làm', exact: true }).click();
+    await page.getByRole('button', { name: 'Tiếp tục Đi dạy gia sư' }).click();
+    await expect(page.getByRole('button', { name: 'Tạm dừng Đi dạy gia sư' })).toBeVisible();
+    await page.getByRole('button', { name: 'Lịch trình', exact: true }).click();
+    await page.getByLabel('Chọn ngày để mở tuần').fill(nextDate);
+    await page.getByRole('button', { name: 'Xem 4 tuần' }).click();
+    await expect(page.locator(`[data-week-date="${nextDate}"]`)).toContainText('2 hẹn');
+  });
+
+  test('kéo công việc vào thời khóa biểu bằng cử chỉ chạm trên mobile', async ({ page, browser, request }) => {
+    const token = (await page.evaluate(() => localStorage.getItem('lifeos_token')))!;
+    const date = nextMonday();
+    const project = await apiJson<{ id: string }>(request, '/projects', token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Dự án mobile' },
+    });
+    await apiJson(request, `/projects/${project.id}/tasks`, token, {
+      method: 'POST', expectedStatus: 201, data: { title: 'Soạn slide demo', estimate: '30m' },
+    });
+    const mobile = await browser.newContext({
+      viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
+      storageState: await page.context().storageState(),
+    });
+    try {
+      const screen = await mobile.newPage();
+      await screen.goto(`${WEB_URL}/calendar`);
+      await screen.getByRole('button', { name: 'Tuần sau' }).click();
+      const grip = screen.getByRole('button', { name: 'Kéo Soạn slide demo vào lịch' });
+      await expect(grip).toBeVisible();
+      const viewport = screen.locator('.calendar-viewport');
+      await viewport.evaluate((element) => { element.scrollTop = 35; });
+      await expect.poll(() => screen.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+      const origin = (await grip.boundingBox())!;
+      const column = screen.locator(`[data-calendar-date="${date}"]`);
+      const box = (await column.boundingBox())!;
+      const from = { x: origin.x + origin.width / 2, y: origin.y + origin.height / 2 };
+      const to = { x: box.x + 40, y: box.y + 123 };
+      const cdp = await mobile.newCDPSession(screen);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+      for (let i = 1; i <= 10; i++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [
+          { x: from.x + (to.x - from.x) * i / 10, y: from.y + (to.y - from.y) * i / 10 },
+        ] });
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      const saved = column.locator('.calendar-entry[data-kind="task"]');
+      await expect(saved).toContainText('Soạn slide demo');
+      const handle = (await saved.getByRole('button', { name: 'Kéo phiên Soạn slide demo' }).boundingBox())!;
+      const back = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 };
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [back] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: back.x + 12, y: back.y }] });
+      const drop = screen.locator('.calendar-mobile-drop');
+      await expect(drop).toBeVisible();
+      const dropArea = (await drop.boundingBox())!;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: dropArea.x + dropArea.width / 2, y: dropArea.y + dropArea.height / 2 }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await expect(saved).toHaveCount(0);
+      await expect(grip).toBeVisible();
+    } finally {
+      await mobile.close();
+    }
+  });
 });
 
 test.describe('API LifeOS', () => {
@@ -552,6 +931,19 @@ test.describe('API LifeOS', () => {
       expectedStatus: 201,
       data: { title: `Task B ${stamp}`, priority: 'Medium', dependencies: [taskA.id] },
     });
+    const taskPath = `/projects/${project.id}/tasks/${taskB.id}`;
+    const completed = await apiJson<{ completedAt: string }>(request, taskPath, userA.token, {
+      method: 'PATCH', data: { status: 'done' },
+    });
+    expect(Number.isFinite(Date.parse(completed.completedAt))).toBe(true);
+    const edited = await apiJson<{ completedAt: string }>(request, taskPath, userA.token, {
+      method: 'PATCH', data: { title: 'Giữ thời điểm hoàn thành', isDone: true },
+    });
+    expect(edited.completedAt).toBe(completed.completedAt);
+    const reopened = await apiJson<{ completedAt: string | null }>(request, taskPath, userA.token, {
+      method: 'PATCH', data: { status: 'todo' },
+    });
+    expect(reopened.completedAt).toBeNull();
 
     // Thử tạo vòng lặp phụ thuộc: taskA phụ thuộc vào taskB (trong khi taskB đã phụ thuộc vào taskA) -> 400
     const cyclicRes = await request.patch(`${API_URL}/api/projects/${project.id}/tasks/${taskA.id}`, {
@@ -734,17 +1126,8 @@ test.describe('API LifeOS', () => {
       method: 'PATCH',
       data: { fullName: `API Updated ${stamp}`, location: 'QA City', bio: 'API profile test' },
     });
-    await apiJson(request, '/personal/state', userA.token, {
-      method: 'PUT',
-      expectedStatus: 204,
-      data: { growthXP: 5, streak: 2 },
-    });
-    const balance = (await apiJson<{ coins: number }>(request, '/personal/state', userA.token)).coins;
-    const spent = await apiJson<{ coins: number }>(request, '/personal/coins/spend', userA.token, {
-      method: 'POST',
-      data: { amount: 1 },
-    });
-    expect(spent.coins).toBe(balance - 1);
+    const personal = await apiJson<{ streak: number }>(request, '/personal/state', userA.token);
+    expect(personal.streak).toBe(1);
 
     for (const item of created.reverse()) {
       await apiJson(request, `${item.path}/${item.id}`, userA.token, { method: 'DELETE', expectedStatus: 204 });

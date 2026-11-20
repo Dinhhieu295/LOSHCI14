@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Award,
+  BarChart3,
   BookOpen,
-  Calendar,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -14,7 +13,7 @@ import {
   ClipboardList,
   Clock3,
   FileText,
-  Layers,
+  Lightbulb,
   MapPin,
   Pause,
   Pencil,
@@ -33,14 +32,13 @@ import {
   type CourseSession,
   type Exam,
   type NoticeHandler,
-  type ScheduleItem,
   type StudyLog,
   type StudyNote,
   type StudySummary,
 } from './api';
 import type { SearchTarget } from './GlobalSearch';
 
-export type StudyTab = 'all' | 'courses' | 'assignments' | 'exams' | 'notes' | 'schedule';
+export type StudyTab = 'courses' | 'gpa' | 'assignments' | 'exams' | 'notes' | 'time' | 'recommendations';
 
 type Props = {
   userId: string;
@@ -50,9 +48,10 @@ type Props = {
   assignments: Assignment[];
   exams: Exam[];
   notes: StudyNote[];
-  scheduleItems: ScheduleItem[];
   summary: StudySummary | null;
   loading: boolean;
+  gpa: ReactNode;
+  recommendations: ReactNode;
   onRefresh: () => Promise<void>;
   onNotice: NoticeHandler;
   activeTab?: StudyTab;
@@ -124,13 +123,6 @@ type NoteDraft = {
   content: string;
 };
 
-type ScheduleDraft = {
-  title: string;
-  date: string;
-  time: string;
-  color: string;
-};
-
 type TimerState = {
   startedAt: number | null;
   elapsedSeconds: number;
@@ -196,16 +188,8 @@ const emptyNote = (): NoteDraft => ({
   content: '',
 });
 
-const emptySchedule = (): ScheduleDraft => ({
-  title: '',
-  date: todayString(),
-  time: '08:00 - 09:30',
-  color: '#4f8259',
-});
-
 const blankTimer: TimerState = { startedAt: null, elapsedSeconds: 0, date: '', courseId: '', note: '' };
 const weekdayNames = ['Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy', 'Chủ nhật'];
-const weekdayShortNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 
 const VALID_COURSE_STATUS = ['all', 'Active', 'Archived'];
 const VALID_ASSIGNMENT_STATUS = ['all', 'pending', 'Not Started', 'In Progress', 'Completed', 'Overdue'];
@@ -225,12 +209,6 @@ const dateLabel = (value: string) =>
   new Intl.DateTimeFormat('vi-VN', { weekday: 'short', day: 'numeric', month: 'numeric' }).format(
     new Date(`${value.slice(0, 10)}T12:00:00`),
   );
-
-const minutesOf = (value: string) => {
-  const [hours, minutes] = value.split(':').map(Number);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return 0;
-  return hours * 60 + minutes;
-};
 
 const daysUntil = (value: string) => {
   const [year, month, day] = value.slice(0, 10).split('-').map(Number);
@@ -302,30 +280,6 @@ export function computeUnifiedStudyHours(courses: Course[], logs: StudyLog[], in
   };
 }
 
-/**
- * Strictly parses a time or time range string:
- * Allowed formats: "HH:mm" or "HH:mm - HH:mm" (00:00 to 23:59).
- * Rejects trailing/leading garbage, invalid hours (e.g. "25:00"), or end <= start.
- */
-export function parseTimeRange(timeStr: string): [number, number] | null {
-  const trimmed = timeStr.trim();
-  const match = /^(?:([01]?\d|2[0-3]):([0-5]\d))(?:\s*(?:-|–|—|đến|to)\s*(?:([01]?\d|2[0-3]):([0-5]\d)))?$/i.exec(
-    trimmed,
-  );
-  if (!match) return null;
-  const start = Number(match[1]) * 60 + Number(match[2]);
-  if (match[3] !== undefined && match[4] !== undefined) {
-    const end = Number(match[3]) * 60 + Number(match[4]);
-    return end > start ? [start, end] : null;
-  }
-  return [start, Math.min(1440, start + 60)];
-}
-
-function isoWeekday(dateIso: string): number {
-  const d = new Date(`${dateIso.slice(0, 10)}T12:00:00`);
-  return ((d.getDay() + 6) % 7) + 1; // 1 = Monday .. 7 = Sunday
-}
-
 const priorityRank: Record<string, number> = { High: 3, Medium: 2, Low: 1 };
 
 const examTypeLabel: Record<Exam['type'], string> = {
@@ -343,12 +297,11 @@ export default function StudyPage({
   assignments,
   exams,
   notes,
-  scheduleItems,
   summary,
   loading,
   onRefresh,
   onNotice,
-  activeTab = 'all',
+  activeTab = 'courses',
   onTabChange,
   selectedCourseId,
   selectedAssignmentId,
@@ -357,6 +310,8 @@ export default function StudyPage({
   onSelectStudyTarget,
   openTarget,
   onTargetOpened,
+  recommendations,
+  gpa,
 }: Props) {
   const filterStorageKey = `lifeos:study-filters:${userId}`;
   const initialStored = useMemo(() => {
@@ -425,16 +380,6 @@ export default function StudyPage({
   const [noteTagFilter, setNoteTagFilter] = useState<string>(() => initialStored.noteTagFilter || 'all');
   const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
 
-  // Personal Schedule state
-  const [showScheduleForm, setShowScheduleForm] = useState(false);
-  const [editingSchedule, setEditingSchedule] = useState<string | null>(null);
-  const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft>(emptySchedule);
-  const [scheduleFormError, setScheduleFormError] = useState('');
-  const [scheduleViewMode, setScheduleViewMode] = useState<'week' | 'day'>('week');
-  const [selectedScheduleDate, setSelectedScheduleDate] = useState<string>(todayString);
-
-  // Timetable & Sessions state
-  const [showTimetable, setShowTimetable] = useState(false);
   const [sessionCourse, setSessionCourse] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [sessionDraft, setSessionDraft] = useState<SessionDraft>(blankSession);
@@ -638,30 +583,22 @@ export default function StudyPage({
       setSemesterFilter('all');
       setCourseStatusFilter('all');
       setExpandedCourseState(openTarget.courseId);
-      if (tab !== 'all' && tab !== 'courses') setTab('courses');
-      onSelectStudyTarget?.({ tab: tab === 'all' ? 'all' : 'courses', courseId: openTarget.courseId });
       targetElId = `course-${openTarget.courseId}`;
     } else if (openTarget.kind === 'assignment' && openTarget.assignmentId) {
       setAssignmentStatusFilter('all');
       setAssignmentPriorityFilter('all');
       setAssignmentCourseFilter('all');
-      if (tab !== 'all' && tab !== 'assignments') setTab('assignments');
-      onSelectStudyTarget?.({ tab: tab === 'all' ? 'all' : 'assignments', assignmentId: openTarget.assignmentId });
       targetElId = `assignment-${openTarget.assignmentId}`;
       setHighlightedId(openTarget.assignmentId);
     } else if (openTarget.kind === 'exam' && openTarget.examId) {
       setExamCourseFilter('all');
       setExamStateFilter('all');
-      if (tab !== 'all' && tab !== 'exams') setTab('exams');
-      onSelectStudyTarget?.({ tab: tab === 'all' ? 'all' : 'exams', examId: openTarget.examId });
       targetElId = `exam-${openTarget.examId}`;
       setHighlightedId(openTarget.examId);
     } else if (openTarget.kind === 'note' && openTarget.noteId) {
       setNoteCourseFilter('all');
       setNoteTagFilter('all');
       setNoteQuery('');
-      if (tab !== 'all' && tab !== 'notes') setTab('notes');
-      onSelectStudyTarget?.({ tab: tab === 'all' ? 'all' : 'notes', noteId: openTarget.noteId });
       targetElId = `note-${openTarget.noteId}`;
       setHighlightedId(openTarget.noteId);
     }
@@ -1234,120 +1171,6 @@ export default function StudyPage({
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [notes, noteCourseFilter, noteTagFilter, noteQuery]);
 
-  // --- Personal Schedule CRUD & Conflict Detection ---
-  const detectScheduleConflict = (dateIso: string, timeStr: string, ignoreId?: string): string | null => {
-    const range = parseTimeRange(timeStr);
-    if (!range) return null;
-    const [start, end] = range;
-
-    // 1. Check conflict with other personal schedule items on the same date
-    for (const item of scheduleItems) {
-      if (item.id === ignoreId || item.date !== dateIso) continue;
-      const otherRange = parseTimeRange(item.time);
-      if (!otherRange) continue;
-      if (start < otherRange[1] && end > otherRange[0]) {
-        return `Trùng giờ với lịch cá nhân "${item.title}" (${item.time})`;
-      }
-    }
-
-    // 2. Check conflict with recurring course sessions on the corresponding weekday
-    const wday = isoWeekday(dateIso);
-    for (const sess of sessions) {
-      if (sess.weekday !== wday) continue;
-      const sStart = minutesOf(sess.startTime);
-      const sEnd = minutesOf(sess.endTime);
-      if (start < sEnd && end > sStart) {
-        const cName = courses.find((c) => c.id === sess.courseId)?.name ?? 'Môn học';
-        return `Trùng giờ với lớp học "${cName}" (${sess.startTime}–${sess.endTime})`;
-      }
-    }
-    return null;
-  };
-
-  const draftScheduleConflict = useMemo(
-    () =>
-      showScheduleForm && scheduleDraft.date && scheduleDraft.time
-        ? detectScheduleConflict(scheduleDraft.date, scheduleDraft.time, editingSchedule ?? undefined)
-        : null,
-    [showScheduleForm, scheduleDraft.date, scheduleDraft.time, editingSchedule, scheduleItems, sessions, courses],
-  );
-
-  const executeSaveScheduleItem = async () => {
-    if (busy) return;
-    setScheduleFormError('');
-    if (!scheduleDraft.title.trim()) {
-      setScheduleFormError('Tên sự kiện không được để trống.');
-      return;
-    }
-    if (!parseTimeRange(scheduleDraft.time)) {
-      const msg =
-        'Khung giờ không hợp lệ. Vui lòng nhập định dạng HH:mm hoặc HH:mm - HH:mm (00:00–23:59) với giờ kết thúc sau giờ bắt đầu.';
-      setScheduleFormError(msg);
-      onNotice({ message: msg, type: 'error' });
-      return;
-    }
-    const isEdit = Boolean(editingSchedule);
-    const payload = {
-      title: scheduleDraft.title.trim(),
-      date: scheduleDraft.date,
-      time: scheduleDraft.time.trim(),
-      color: scheduleDraft.color || '#4f8259',
-    };
-    setBusy(true);
-    try {
-      const path = isEdit ? `/study/schedule/${editingSchedule}` : '/study/schedule';
-      await api(path, { method: isEdit ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
-      setShowScheduleForm(false);
-      setEditingSchedule(null);
-      setScheduleDraft(emptySchedule());
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Không lưu được lịch cá nhân.';
-      setScheduleFormError(msg);
-      onNotice({
-        message: msg,
-        type: 'error',
-        retry: () => void executeSaveScheduleItem(),
-        retryLabel: 'Thử lưu lại',
-      });
-      setBusy(false);
-      return;
-    }
-    setBusy(false);
-    await safeRefreshAfterMutation(isEdit ? 'Đã cập nhật lịch cá nhân.' : 'Đã thêm lịch cá nhân.');
-  };
-
-  const saveScheduleItem = async (event: FormEvent) => {
-    event.preventDefault();
-    await executeSaveScheduleItem();
-  };
-
-  const startEditScheduleItem = (item: ScheduleItem) => {
-    setScheduleFormError('');
-    setScheduleDraft({
-      title: item.title,
-      date: item.date.slice(0, 10),
-      time: item.time,
-      color: item.color || '#4f8259',
-    });
-    setEditingSchedule(item.id);
-    setShowScheduleForm(true);
-  };
-
-  const deleteScheduleItem = async (item: ScheduleItem) => {
-    if (itemBusyId === item.id) return;
-    if (!window.confirm(`Xóa lịch cá nhân “${item.title}”?`)) return;
-    setItemBusyId(item.id);
-    try {
-      await api(`/study/schedule/${item.id}`, { method: 'DELETE' });
-    } catch (error) {
-      setItemBusyId(null);
-      onNotice({ message: error instanceof Error ? error.message : 'Không xóa được lịch cá nhân.', type: 'error' });
-      return;
-    }
-    setItemBusyId(null);
-    await safeRefreshAfterMutation('Đã xóa lịch cá nhân.');
-  };
-
   // --- Course Session CRUD ---
   const executeSaveSession = async () => {
     if (!sessionCourse || busy) return;
@@ -1423,7 +1246,7 @@ export default function StudyPage({
 
   const deleteSession = async (session: CourseSession) => {
     if (itemBusyId === session.id) return;
-    if (!window.confirm('Xóa buổi học này khỏi thời khóa biểu?')) return;
+    if (!window.confirm('Xóa buổi học này khỏi lịch trình?')) return;
     setItemBusyId(session.id);
     try {
       await api(`/study/course-sessions/${session.id}`, { method: 'DELETE' });
@@ -1433,7 +1256,7 @@ export default function StudyPage({
       return;
     }
     setItemBusyId(null);
-    await safeRefreshAfterMutation('Đã xóa buổi học khỏi thời khóa biểu.');
+    await safeRefreshAfterMutation('Đã xóa buổi học khỏi lịch trình.');
   };
 
   // --- Stopwatch & Study Logs ---
@@ -1631,11 +1454,20 @@ export default function StudyPage({
       </form>
     );
 
-  const showCoursesSection = tab === 'all' || tab === 'courses';
-  const showScheduleSection = tab === 'all' || tab === 'courses' || tab === 'schedule';
-  const showAssignmentsSection = tab === 'all' || tab === 'assignments';
-  const showExamsSection = tab === 'all' || tab === 'exams';
-  const showNotesSection = tab === 'all' || tab === 'notes';
+  const showCoursesSection = tab === 'courses';
+  const showAssignmentsSection = tab === 'assignments';
+  const showExamsSection = tab === 'exams';
+  const showNotesSection = tab === 'notes';
+
+  const studyTabs = [
+    { id: 'courses', label: 'Môn học', icon: BookOpen, count: courses.length },
+    { id: 'gpa', label: 'Phân tích GPA', icon: BarChart3, count: undefined },
+    { id: 'assignments', label: 'Bài tập', icon: ClipboardList, count: assignments.filter((item) => item.status !== 'Completed').length },
+    { id: 'exams', label: 'Kỳ thi', icon: Award, count: exams.length },
+    { id: 'notes', label: 'Ghi chú', icon: FileText, count: notes.length },
+    { id: 'time', label: 'Tự học', icon: Clock3, count: undefined },
+    { id: 'recommendations', label: 'Gợi ý học', icon: Lightbulb, count: undefined },
+  ] as const;
 
   return (
     <>
@@ -1647,35 +1479,25 @@ export default function StudyPage({
           <h1>Không gian học tập</h1>
           <p>Quản lý môn học, lịch lên lớp, bài tập, kỳ thi, ghi chú và thời gian tự học.</p>
         </div>
-        <div className="study-heading-actions">
-          <button className="soft-button" type="button" onClick={() => setShowLogForm((value) => !value)}>
-            <Clock3 size={16} /> Ghi thời gian học
-          </button>
-          <button
-            className="soft-button"
-            type="button"
-            onClick={() => {
-              setEditingAssignment(null);
-              setAssignmentFormError('');
-              setAssignmentDraft(emptyAssignment());
-              setShowAssignmentForm((value) => !value);
-            }}
-          >
-            <Plus size={16} /> Thêm bài tập
-          </button>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => {
-              setEditingCourse(null);
-              setCourseFormError('');
-              setCourseDraft(blankCourse);
-              setShowCourseForm((value) => !value);
-            }}
-          >
-            <Plus size={17} /> Thêm môn học
-          </button>
-        </div>
+        {(showCoursesSection || showAssignmentsSection) && (
+          <div className="study-heading-actions">
+            {showCoursesSection ? (
+              <button className="primary-button" type="button" onClick={() => {
+                setEditingCourse(null);
+                setCourseFormError('');
+                setCourseDraft(blankCourse);
+                setShowCourseForm((value) => !value);
+              }}><Plus size={17} /> Thêm môn học</button>
+            ) : (
+              <button className="primary-button" type="button" onClick={() => {
+                setEditingAssignment(null);
+                setAssignmentFormError('');
+                setAssignmentDraft(emptyAssignment());
+                setShowAssignmentForm((value) => !value);
+              }}><Plus size={16} /> Thêm bài tập</button>
+            )}
+          </div>
+        )}
       </div>
 
       {loading && (
@@ -1684,142 +1506,81 @@ export default function StudyPage({
         </div>
       )}
 
-      <div className="study-summary-grid">
-        <SummaryCard
-          label={isCourseScoped ? 'Môn trong bộ lọc' : 'Môn đang học'}
-          value={String(
-            isCourseScoped
-              ? filteredCourses.filter((c) => (c.status || 'Active') === 'Active').length
-              : courses.filter((c) => (c.status || 'Active') === 'Active').length || (summary?.activeCourses ?? 0),
-          )}
-          detail={
-            isCourseScoped
-              ? `Đang lọc ${filteredCourses.length}/${courses.length} môn`
-              : `${courses.length} môn tổng cộng`
-          }
-          icon={<BookOpen size={18} />}
-          tone="violet"
-        />
-        <SummaryCard
-          label="Bài tập & Kỳ thi"
-          value={`${scopedAssignmentsForSummary.filter((a) => a.status !== 'Completed').length} / ${scopedExamsForSummary.filter((e) => daysUntil(e.date) >= 0).length}`}
-          detail={isCourseScoped ? 'Trong phạm vi môn đang lọc' : 'Bài tập chờ · Kỳ thi sắp tới'}
-          icon={<CalendarDays size={18} />}
-          tone="amber"
-        />
-        <SummaryCard
-          label={isCourseScoped ? 'Giờ học (phạm vi lọc)' : 'Giờ học tích lũy'}
-          value={`${unifiedStudy.totalHours}h`}
-          detail={
-            isCourseScoped
-              ? `Mục tiêu phạm vi: ${unifiedStudy.targetHours}h (không gồm tự học chung)`
-              : `Tuần này: ${Math.floor(currentWeekMinutes / 60)}h ${currentWeekMinutes % 60}m · Mục tiêu ${unifiedStudy.targetHours}h`
-          }
-          icon={<Clock3 size={18} />}
-          tone="blue"
-        />
+      <div
+        className="study-tabs-bar panel"
+        role="tablist"
+        aria-label="Phân khu học tập"
+        onKeyDown={(event) => {
+          const index = studyTabs.findIndex((item) => item.id === tab);
+          const last = studyTabs.length - 1;
+          const next = event.key === 'ArrowRight' ? (index + 1) % studyTabs.length
+            : event.key === 'ArrowLeft' ? (index + last) % studyTabs.length
+            : event.key === 'Home' ? 0 : event.key === 'End' ? last : null;
+          if (next === null) return;
+          event.preventDefault();
+          setTab(studyTabs[next].id);
+          event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+        }}
+      >
+        <div className="study-tabs-list">
+          {studyTabs.map(({ id, label, icon: Icon, count }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              tabIndex={tab === id ? 0 : -1}
+              className={`study-tab-btn ${tab === id ? 'active' : ''}`}
+              onClick={() => setTab(id)}
+            >
+              <Icon size={15} /> {label} {count !== undefined && <small>{count}</small>}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Study Navigation Tabs */}
-      <div className="study-tabs-bar panel" role="tablist" aria-label="Phân khu học tập">
-        <div className="study-tabs-list">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'all'}
-            className={`study-tab-btn ${tab === 'all' ? 'active' : ''}`}
-            onClick={() => setTab('all')}
-          >
-            <Layers size={15} /> Tất cả
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'courses'}
-            className={`study-tab-btn ${tab === 'courses' ? 'active' : ''}`}
-            onClick={() => setTab('courses')}
-          >
-            <BookOpen size={15} /> Môn học <small>{courses.length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'assignments'}
-            className={`study-tab-btn ${tab === 'assignments' ? 'active' : ''}`}
-            onClick={() => setTab('assignments')}
-          >
-            <ClipboardList size={15} /> Bài tập <small>{assignments.filter((a) => a.status !== 'Completed').length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'exams'}
-            className={`study-tab-btn ${tab === 'exams' ? 'active' : ''}`}
-            onClick={() => setTab('exams')}
-          >
-            <Award size={15} /> Kỳ thi <small>{exams.length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'notes'}
-            className={`study-tab-btn ${tab === 'notes' ? 'active' : ''}`}
-            onClick={() => setTab('notes')}
-          >
-            <FileText size={15} /> Ghi chú <small>{notes.length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'schedule'}
-            className={`study-tab-btn ${tab === 'schedule' ? 'active' : ''}`}
-            onClick={() => setTab('schedule')}
-          >
-            <Calendar size={15} /> Lịch <small>{sessions.length + scheduleItems.length}</small>
-          </button>
+      {tab === 'recommendations' && !loading && recommendations}
+      {tab === 'gpa' && gpa}
+      {(showCoursesSection || tab === 'time') && (
+        <div className="study-summary-grid">
+          <SummaryCard
+            label={isCourseScoped ? 'Môn trong bộ lọc' : 'Môn đang học'}
+            value={String(
+              isCourseScoped
+                ? filteredCourses.filter((c) => (c.status || 'Active') === 'Active').length
+                : courses.filter((c) => (c.status || 'Active') === 'Active').length || (summary?.activeCourses ?? 0),
+            )}
+            detail={
+              isCourseScoped
+                ? `Đang lọc ${filteredCourses.length}/${courses.length} môn`
+                : `${courses.length} môn tổng cộng`
+            }
+            icon={<BookOpen size={18} />}
+            tone="violet"
+          />
+          <SummaryCard
+            label="Bài tập & Kỳ thi"
+            value={`${scopedAssignmentsForSummary.filter((a) => a.status !== 'Completed').length} / ${scopedExamsForSummary.filter((e) => daysUntil(e.date) >= 0).length}`}
+            detail={isCourseScoped ? 'Trong phạm vi môn đang lọc' : 'Bài tập chờ · Kỳ thi sắp tới'}
+            icon={<CalendarDays size={18} />}
+            tone="amber"
+          />
+          <SummaryCard
+            label={isCourseScoped ? 'Giờ học (phạm vi lọc)' : 'Giờ học tích lũy'}
+            value={`${unifiedStudy.totalHours}h`}
+            detail={
+              isCourseScoped
+                ? `Mục tiêu phạm vi: ${unifiedStudy.targetHours}h (không gồm tự học chung)`
+                : `Tuần này: ${Math.floor(currentWeekMinutes / 60)}h ${currentWeekMinutes % 60}m · Mục tiêu ${unifiedStudy.targetHours}h`
+            }
+            icon={<Clock3 size={18} />}
+            tone="blue"
+          />
         </div>
-        <div className="study-quick-add">
-          <button
-            type="button"
-            className="soft-button compact-btn"
-            onClick={() => {
-              setEditingExam(null);
-              setExamFormError('');
-              setExamDraft(emptyExam());
-              setShowExamForm((v) => !v);
-            }}
-          >
-            <Plus size={14} /> Thêm kỳ thi
-          </button>
-          <button
-            type="button"
-            className="soft-button compact-btn"
-            onClick={() => {
-              setEditingNote(null);
-              setNoteFormError('');
-              setNoteDraft(emptyNote());
-              setShowNoteForm((v) => !v);
-            }}
-          >
-            <Plus size={14} /> Thêm ghi chú
-          </button>
-          <button
-            type="button"
-            className="soft-button compact-btn"
-            onClick={() => {
-              setEditingSchedule(null);
-              setScheduleFormError('');
-              setScheduleDraft(emptySchedule());
-              setShowScheduleForm((v) => !v);
-            }}
-          >
-            <Plus size={14} /> Thêm sự kiện
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Assignment Form */}
-      {showAssignmentForm && (
+      {showAssignmentsSection && showAssignmentForm && (
         <form className="panel study-editor" onSubmit={(event) => void saveAssignment(event)}>
           <div className="panel-heading">
             <div>
@@ -1934,7 +1695,7 @@ export default function StudyPage({
       )}
 
       {/* Course Form */}
-      {showCourseForm && (
+      {showCoursesSection && showCourseForm && (
         <form className="panel study-editor" onSubmit={(event) => void saveCourse(event)}>
           <div className="panel-heading">
             <div>
@@ -2124,7 +1885,7 @@ export default function StudyPage({
       )}
 
       {/* Exam Form */}
-      {showExamForm && (
+      {showExamsSection && showExamForm && (
         <form className="panel study-editor" onSubmit={(event) => void saveExam(event)}>
           <div className="panel-heading">
             <div>
@@ -2239,7 +2000,7 @@ export default function StudyPage({
       )}
 
       {/* Note Form */}
-      {showNoteForm && (
+      {showNotesSection && showNoteForm && (
         <form className="panel study-editor" onSubmit={(event) => void saveNote(event)}>
           <div className="panel-heading">
             <div>
@@ -2339,103 +2100,8 @@ export default function StudyPage({
         </form>
       )}
 
-      {/* Personal Schedule Form */}
-      {showScheduleForm && (
-        <form className="panel study-editor" onSubmit={(event) => void saveScheduleItem(event)}>
-          <div className="panel-heading">
-            <div>
-              <h3>{editingSchedule ? 'Chỉnh sửa lịch cá nhân' : 'Thêm sự kiện lịch cá nhân'}</h3>
-              <p>Lên lịch tự học, họp nhóm hoặc việc cá nhân theo ngày cụ thể (tự động kiểm tra trùng giờ).</p>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Đóng"
-              onClick={() => {
-                setShowScheduleForm(false);
-                setEditingSchedule(null);
-                setScheduleFormError('');
-                setScheduleDraft(emptySchedule());
-              }}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <div className="study-form-grid">
-            <label>
-              Tên sự kiện
-              <input
-                autoFocus
-                value={scheduleDraft.title}
-                onChange={(e) => setScheduleDraft({ ...scheduleDraft, title: e.target.value })}
-                required
-                maxLength={200}
-                placeholder="Ví dụ: Họp nhóm đồ án AI"
-              />
-            </label>
-            <label>
-              Ngày
-              <input
-                type="date"
-                value={scheduleDraft.date}
-                onChange={(e) => setScheduleDraft({ ...scheduleDraft, date: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Khung giờ (HH:MM - HH:MM)
-              <input
-                value={scheduleDraft.time}
-                onChange={(e) => setScheduleDraft({ ...scheduleDraft, time: e.target.value })}
-                required
-                maxLength={32}
-                placeholder="Ví dụ: 14:00 - 16:00"
-              />
-            </label>
-            <label>
-              Màu sự kiện
-              <input
-                type="color"
-                value={scheduleDraft.color || '#4f8259'}
-                onChange={(e) => setScheduleDraft({ ...scheduleDraft, color: e.target.value })}
-              />
-            </label>
-          </div>
-          {draftScheduleConflict && (
-            <div className="schedule-conflict-banner" role="alert">
-              <AlertTriangle size={15} />
-              <span>
-                Cảnh báo trùng lịch: {draftScheduleConflict}. Hệ thống vẫn cho phép lưu nếu bạn muốn xếp song song, hoặc
-                bạn có thể đổi sang khung giờ khác.
-              </span>
-            </div>
-          )}
-          {scheduleFormError && (
-            <div className="form-error" role="alert">
-              {scheduleFormError}
-            </div>
-          )}
-          <div className="study-editor-actions">
-            <button className="primary-button" disabled={busy}>
-              {busy ? 'Đang lưu…' : editingSchedule ? 'Lưu sự kiện' : 'Thêm vào lịch'}
-            </button>
-            <button
-              className="soft-button"
-              type="button"
-              onClick={() => {
-                setShowScheduleForm(false);
-                setEditingSchedule(null);
-                setScheduleFormError('');
-              }}
-            >
-              Hủy
-            </button>
-          </div>
-        </form>
-      )}
-
       {/* Study Stopwatch */}
-      {showLogForm && (
+      {tab === 'time' && showLogForm && (
         <section className="panel study-editor timer-editor">
           <div className="panel-heading">
             <div>
@@ -2743,7 +2409,7 @@ export default function StudyPage({
               <span>
                 {courses.length
                   ? 'Thử chọn Tất cả học kỳ hoặc xóa bộ lọc trạng thái.'
-                  : 'Thêm môn học đầu tiên để bắt đầu tạo thời khóa biểu.'}
+                  : 'Thêm môn học đầu tiên để bắt đầu tạo lịch học.'}
               </span>
               {courses.length > 0 && isCourseScoped && (
                 <button
@@ -2762,332 +2428,7 @@ export default function StudyPage({
         </section>
       )}
 
-      {/* Weekly Timetable & Personal Schedule */}
-      {showScheduleSection && (
-        <>
-          <section className="panel timetable-panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Thời khóa biểu tuần (Lịch học cố định)</h3>
-                <p>
-                  {sessions.length
-                    ? `${sessions.length} buổi học · Thời gian, tiết, địa điểm và phòng học.`
-                    : 'Thời gian, tiết, địa điểm và phòng học.'}
-                </p>
-              </div>
-              {sessions.length > 0 && (
-                <button
-                  className="soft-button timetable-expand-button"
-                  type="button"
-                  aria-expanded={showTimetable}
-                  onClick={() => setShowTimetable((value) => !value)}
-                >
-                  <ChevronDown className={showTimetable ? 'expanded' : ''} size={15} />
-                  {showTimetable ? 'Thu gọn' : 'Xem đầy đủ'}
-                </button>
-              )}
-            </div>
-            {sessions.length ? (
-              <>
-                <div className="timetable-scroll-hint" aria-hidden="true">
-                  ↔ Vuốt ngang để xem toàn bộ các ngày trong tuần
-                </div>
-                {!showTimetable && (
-                  <div className="compact-week-scroll">
-                    <div className="compact-week-summary">
-                      {weekdayNames.map((day, index) => {
-                        const daySessions = sessions
-                          .filter((session) => session.weekday === index + 1)
-                          .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                        const firstSession = daySessions[0];
-                        const course = firstSession ? courses.find((item) => item.id === firstSession.courseId) : null;
-                        return (
-                          <div className="compact-week-day" key={day}>
-                            <strong>{weekdayShortNames[index]}</strong>
-                            {firstSession ? (
-                              <>
-                                <div className="compact-week-entry">
-                                  <span title={course?.name ?? 'Môn học'}>{course?.name ?? 'Môn học'}</span>
-                                  <small>
-                                    {firstSession.startTime}–{firstSession.endTime}
-                                  </small>
-                                </div>
-                                {daySessions.length > 1 && (
-                                  <span className="compact-week-count">+{daySessions.length - 1} buổi</span>
-                                )}
-                              </>
-                            ) : (
-                              <small className="compact-week-empty">Trống</small>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {showTimetable && (
-                  <div className="timetable-scroll">
-                    <div className="weekly-timetable">
-                      <div className="timetable-corner">Giờ</div>
-                      {weekdayNames.map((day) => (
-                        <div className="timetable-day-heading" key={day}>
-                          {day}
-                        </div>
-                      ))}
-                      <div className="timetable-times">
-                        {Array.from({ length: 16 }, (_, i) => (
-                          <span key={i}>{`${String(i + 6).padStart(2, '0')}:00`}</span>
-                        ))}
-                      </div>
-                      {weekdayNames.map((day, index) => (
-                        <div className="timetable-day" key={day}>
-                          {sessions
-                            .filter((session) => session.weekday === index + 1)
-                            .map((session) => {
-                              // Clamp position inside the 768px grid so sessions before 06:00 or after 21:00 remain visible & accessible
-                              const rawTop = (minutesOf(session.startTime) - 360) * 0.8;
-                              const top = Math.min(720, Math.max(0, rawTop));
-                              const rawHeight = (minutesOf(session.endTime) - minutesOf(session.startTime)) * 0.8;
-                              const height = Math.min(768 - top, Math.max(28, rawHeight));
-                              const course = courses.find((item) => item.id === session.courseId);
-                              return (
-                                <div
-                                  className={`timetable-session timetable-tone-${Math.max(0, courses.findIndex((item) => item.id === session.courseId)) % 4}`}
-                                  key={session.id}
-                                  style={{ top, height }}
-                                  title={`${course?.name ?? 'Môn học'} · ${session.startTime}–${session.endTime}`}
-                                >
-                                  <strong>{course?.name ?? 'Môn học'}</strong>
-                                  <span>
-                                    {session.startTime}–{session.endTime}
-                                  </span>
-                                  <small>
-                                    Tiết {session.periodStart}–{session.periodEnd}
-                                  </small>
-                                  {(session.room || session.location) && (
-                                    <small>{[session.room, session.location].filter(Boolean).join(' · ')}</small>
-                                  )}
-                                </div>
-                              );
-                            })}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="study-empty compact">
-                <CalendarDays size={22} />
-                <span>Thêm lịch học vào môn học để xem thời khóa biểu.</span>
-              </div>
-            )}
-          </section>
-
-          {/* Personal Schedule Panel (/api/study/schedule) */}
-          <section className="panel personal-schedule-panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Lịch cá nhân & Sự kiện theo ngày</h3>
-                <p>Phân biệt với thời khóa biểu cố định: quản lý kế hoạch tự học, họp nhóm và cảnh báo trùng giờ.</p>
-              </div>
-              <div className="panel-heading-tools">
-                <div className="segmented-control" role="group" aria-label="Chế độ xem lịch cá nhân">
-                  <button
-                    type="button"
-                    className={scheduleViewMode === 'week' ? 'active' : ''}
-                    onClick={() => setScheduleViewMode('week')}
-                  >
-                    Theo tuần
-                  </button>
-                  <button
-                    type="button"
-                    className={scheduleViewMode === 'day' ? 'active' : ''}
-                    onClick={() => setScheduleViewMode('day')}
-                  >
-                    Theo ngày
-                  </button>
-                </div>
-                {scheduleViewMode === 'day' && (
-                  <input
-                    type="date"
-                    aria-label="Chọn ngày xem lịch"
-                    className="compact-date-input"
-                    value={selectedScheduleDate}
-                    onChange={(e) => setSelectedScheduleDate(e.target.value)}
-                  />
-                )}
-                <button
-                  type="button"
-                  className="soft-button compact-btn"
-                  onClick={() => {
-                    setEditingSchedule(null);
-                    setScheduleFormError('');
-                    setScheduleDraft({ ...emptySchedule(), date: selectedScheduleDate || todayString() });
-                    setShowScheduleForm(true);
-                  }}
-                >
-                  <Plus size={14} /> Thêm sự kiện
-                </button>
-              </div>
-            </div>
-
-            {scheduleViewMode === 'week' ? (
-              <div className="schedule-week-grid">
-                {weekDays.map((day) => {
-                  const dayEvents = scheduleItems
-                    .filter((item) => item.date === day.iso)
-                    .sort((a, b) => a.time.localeCompare(b.time));
-                  const daySessions = sessions
-                    .filter((s) => s.weekday === day.weekday)
-                    .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                  return (
-                    <div className="schedule-day-card" key={day.iso}>
-                      <div className="schedule-day-head">
-                        <strong>{day.name}</strong>
-                        <small>{dateLabel(day.iso)}</small>
-                      </div>
-                      <div className="schedule-day-body">
-                        {daySessions.map((sess) => {
-                          const cName = courses.find((c) => c.id === sess.courseId)?.name ?? 'Môn học';
-                          return (
-                            <div className="schedule-entry class-entry" key={`class-${sess.id}`}>
-                              <span className="entry-badge">Lớp học</span>
-                              <strong>{cName}</strong>
-                              <small>
-                                {sess.startTime}–{sess.endTime} {sess.room ? `· ${sess.room}` : ''}
-                              </small>
-                            </div>
-                          );
-                        })}
-                        {dayEvents.map((ev) => {
-                          const conflict = detectScheduleConflict(ev.date, ev.time, ev.id);
-                          return (
-                            <div
-                              className={`schedule-entry personal-entry ${conflict ? 'conflict-entry' : ''}`}
-                              key={ev.id}
-                              style={ev.color ? { borderLeftColor: ev.color } : undefined}
-                            >
-                              <div className="schedule-entry-top">
-                                <span className="entry-badge personal">Cá nhân</span>
-                                {conflict && (
-                                  <span className="conflict-pill" title={conflict}>
-                                    <AlertTriangle size={11} /> Trùng giờ
-                                  </span>
-                                )}
-                                <div className="schedule-entry-actions">
-                                  <button
-                                    type="button"
-                                    className="icon-button"
-                                    aria-label={`Sửa sự kiện ${ev.title}`}
-                                    onClick={() => startEditScheduleItem(ev)}
-                                  >
-                                    <Pencil size={12} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="icon-button danger-icon"
-                                    disabled={itemBusyId === ev.id}
-                                    aria-label={`Xóa sự kiện ${ev.title}`}
-                                    onClick={() => void deleteScheduleItem(ev)}
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                </div>
-                              </div>
-                              <strong>{ev.title}</strong>
-                              <small>{ev.time}</small>
-                            </div>
-                          );
-                        })}
-                        {!daySessions.length && !dayEvents.length && (
-                          <span className="schedule-empty-day">Không có lịch</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="schedule-day-detail">
-                {(() => {
-                  const wday = isoWeekday(selectedScheduleDate);
-                  const daySessions = sessions
-                    .filter((s) => s.weekday === wday)
-                    .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                  const dayEvents = scheduleItems
-                    .filter((item) => item.date === selectedScheduleDate)
-                    .sort((a, b) => a.time.localeCompare(b.time));
-                  if (!daySessions.length && !dayEvents.length) {
-                    return (
-                      <div className="study-empty compact">
-                        <Calendar size={20} />
-                        <span>Chưa có buổi học hoặc lịch cá nhân nào trong ngày {dateLabel(selectedScheduleDate)}.</span>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div className="task-list">
-                      {daySessions.map((sess) => {
-                        const cName = courses.find((c) => c.id === sess.courseId)?.name ?? 'Môn học';
-                        return (
-                          <div className="project-task" key={`day-sess-${sess.id}`}>
-                            <span className="entry-badge">Lớp học cố định</span>
-                            <div className="task-copy">
-                              <strong>{cName}</strong>
-                              <span>
-                                {sess.startTime}–{sess.endTime} · Tiết {sess.periodStart}–{sess.periodEnd}{' '}
-                                {sess.room ? `· Phòng ${sess.room}` : ''}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {dayEvents.map((ev) => {
-                        const conflict = detectScheduleConflict(ev.date, ev.time, ev.id);
-                        return (
-                          <div className="project-task" key={ev.id}>
-                            <span
-                              className="entry-badge personal"
-                              style={ev.color ? { backgroundColor: `${ev.color}22`, color: ev.color } : undefined}
-                            >
-                              Lịch cá nhân
-                            </span>
-                            <div className="task-copy">
-                              <strong>{ev.title}</strong>
-                              <span>
-                                {ev.time} · {dateLabel(ev.date)}
-                                {conflict ? ` · ⚠️ ${conflict}` : ''}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              className="icon-button"
-                              aria-label={`Sửa sự kiện ${ev.title}`}
-                              onClick={() => startEditScheduleItem(ev)}
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              type="button"
-                              className="icon-button task-delete"
-                              disabled={itemBusyId === ev.id}
-                              aria-label={`Xóa sự kiện ${ev.title}`}
-                              onClick={() => void deleteScheduleItem(ev)}
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </section>
-
-          {/* Study Heatmap Panel */}
+      {tab === 'time' && (
           <section className="panel heatmap-panel">
             <div className="panel-heading">
               <div>
@@ -3181,7 +2522,6 @@ export default function StudyPage({
               </div>
             )}
           </section>
-        </>
       )}
 
       {/* Assignments Panel */}

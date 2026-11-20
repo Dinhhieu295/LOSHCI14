@@ -22,11 +22,13 @@ LifeOS là ứng dụng web hỗ trợ người dùng tổ chức các khía c�
 ## 3. Chức năng chính
 
 - **Tài khoản:** đăng ký, đăng nhập, xác thực phiên và đăng xuất.
-- **Tổng quan:** xem số liệu dự án, tiến độ học tập, chuỗi ngày, hạt giống và bài tập đang chờ.
-- **Dự án và task:** tạo, sửa, xóa dự án/task; cập nhật trạng thái, hạn và mức ưu tiên; tìm kiếm dự án/task; bật hoặc tắt nhắc hạn.
-- **Học tập:** quản lý môn học, buổi học trong tuần, thời khóa biểu và bài tập; theo dõi tiến độ và thời hạn.
+- **Tổng quan:** xem tiến độ dự án, GPA, chuỗi ngày và bài tập đang chờ.
+- **Dự án và công việc:** quản lý hạn, tiến độ, mức ưu tiên và thời lượng thực tế. LifeOS ghi thời điểm khi đánh dấu một công việc hoàn thành.
+- **Học tập:** quản lý môn học, bài tập, kỳ thi, ghi chú, tự học và gợi ý học. Mục **Phân tích GPA** tính GPA hệ 4 theo tín chỉ, có bộ lọc học kỳ và kịch bản điểm.
+- **Lịch trình:** chuyển tuần, nhảy tới một ngày hoặc xem tổng quan 4 tuần. Lịch hiển thị buổi học, sự kiện cá nhân và hạn chót của việc cá nhân lẫn task dự án. Có thể đặt khung giờ rảnh, kéo thả hoặc nhờ LifeOS gợi ý và lưu phiên làm việc.
+- **Công việc:** lịch **Việc làm** như đi dạy hay làm thêm tự lặp cùng thứ và giờ mỗi tuần kể từ ngày bắt đầu. **Việc cá nhân** như sinh nhật hoặc du lịch diễn ra một lần, có thể đặt giờ cụ thể hoặc đưa vào hàng đợi để xếp sau. Có thể đặt hạn chót và xem tiến độ việc dự án.
 - **Thời gian tự học:** bấm giờ, tạm dừng/tiếp tục, lưu study log và xem heatmap theo tuần.
-- **Cá nhân:** cập nhật hồ sơ, xem chuỗi ngày/XP/hạt giống và sử dụng hạt giống.
+- **Cá nhân:** cập nhật hồ sơ và đổi mật khẩu.
 - **Trải nghiệm giao diện:** chuyển chế độ sáng/tối, hỗ trợ menu ở màn hình di động.
 
 ## 4. Công nghệ sử dụng
@@ -142,17 +144,17 @@ cd backend
 npm run db:seed:demo
 ```
 
-- Email: `demo@lifeos.local`
-- Mật khẩu: `LifeOS123!`
+- Email: `uet-demo@lifeos.local`
+- Mật khẩu: `UETLifeOS123!`
 
 ## 8. Kiểm thử và kết quả
 
-Bộ test Playwright nằm tại `test/lifeos.spec.ts`, gồm các test giao diện riêng theo chức năng và test API. Sau khi ứng dụng và PostgreSQL hoạt động, từ thư mục gốc chạy:
+Bộ test Playwright nằm tại `test/lifeos.spec.ts` và `test/manual-scenarios.spec.ts`. Bộ test bao gồm kiểm thử giao diện, điều hướng mobile, API, phân tích GPA, giờ trống, phản hồi gợi ý và thời điểm hoàn thành công việc. Sau khi ứng dụng và PostgreSQL hoạt động, từ thư mục gốc chạy:
 
 ```powershell
 npm.cmd install
 $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $env:TEMP 'lifeos-playwright-browsers'
-npm.cmd exec -- playwright test test/lifeos.spec.ts --reporter=list
+npm.cmd exec -- playwright test test/lifeos.spec.ts test/manual-scenarios.spec.ts --reporter=list
 ```
 
 Nếu Chromium chưa được cài trong thư mục trên, cài bằng:
@@ -160,21 +162,3 @@ Nếu Chromium chưa được cài trong thư mục trên, cài bằng:
 ```powershell
 npm.cmd exec -- playwright install chromium
 ```
-
-**Kết quả chạy gần nhất: 11/11 test Passed.**
-
-| # | Nhóm | Nội dung kiểm thử | Kết quả gần nhất |
-|---:|---|---|---|
-| 1 | Chức năng | Đăng nhập lại và đăng xuất | Passed |
-| 2 | Chức năng | Hiển thị Tổng quan và lưu giao diện tối sau khi tải lại | Passed |
-| 3 | Chức năng | Tạo, sửa, hoàn thành, tìm kiếm và xóa dự án cùng task | Passed |
-| 4 | Chức năng | Bật/tắt nhắc hạn task | Passed |
-| 5 | Chức năng | Thêm môn và lịch học, sửa/xóa buổi học, xem thời khóa biểu | Passed |
-| 6 | Chức năng | Tạo, sửa, hoàn tất/khôi phục và xóa bài tập | Passed |
-| 7 | Chức năng | Bấm giờ tự học, tạm dừng/tiếp tục và lưu study log | Passed |
-| 8 | Chức năng | Sửa hồ sơ, chi hạt giống và điều hướng trên mobile | Passed |
-| 9 | API | Health, đăng ký, đăng nhập sai, xác thực và thu hồi phiên | Passed |
-| 10 | API | CRUD dự án/task, validation và ngăn truy cập chéo tài khoản | Passed |
-| 11 | API | CRUD tài nguyên học tập, quyền môn học, hồ sơ và trạng thái cá nhân | Passed |
-
-Trạng thái này phản ánh lần chạy Playwright gần nhất trong môi trường phát triển; chạy lại lệnh phía trên để cập nhật kết quả.
