@@ -23,8 +23,7 @@ export class AuthService {
       createdAt: now, updatedAt: now,
     };
     const initialState: PersonalState = {
-      userId: user.id, coins: 350, growthXP: 0, streak: 1, lastLoginDate: now.slice(0, 10),
-      selectedSeed: 'tomato', shopItems: [], history: [], updatedAt: now,
+      userId: user.id, streak: 1, lastLoginDate: now.slice(0, 10), updatedAt: now,
     };
     const session = this.newSession(user.id, now);
 

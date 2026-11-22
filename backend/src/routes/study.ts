@@ -4,9 +4,11 @@ import type { StudyResourceName } from '../application/models.js';
 import type { AppServices } from '../application/services/index.js';
 import { asyncHandler } from '../http/async-handler.js';
 import { HttpError } from '../http/errors.js';
+import { ProjectResourcesRepository } from '../infrastructure/repositories/project-resources-repository.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { createProjectResourcesRouter } from './project-resources.js';
 
-const schemas = {
+export const studySchemas = {
   courses: z.object({
     name: z.string().trim().min(1).max(160),
     code: z.string().max(40).default(''),
@@ -16,11 +18,19 @@ const schemas = {
     progress: z.number().min(0).max(100).default(0),
     score10: z.number().min(0).max(10).nullable().default(null),
     grade: z.string().max(8).default('N/A'),
+    gradeComponents: z.array(z.strictObject({
+      name: z.string().trim().min(1).max(120),
+      score10: z.number().min(0).max(10).nullable(),
+      weight: z.number().min(0).max(100),
+    })).max(100).refine((items) => !items.length || Math.abs(items.reduce((sum, item) => sum + item.weight, 0) - 100) < 0.000001,
+      'Tổng tỷ trọng các đầu điểm phải bằng 100%.').optional(),
     attendance: z.number().min(0).max(100).default(0),
+    absences: z.number().int().min(0).max(2147483647).nullable().default(null),
     studyHours: z.number().min(0).default(0),
     aimStudyHours: z.number().min(0).default(0),
     color: z.string().max(40).default(''),
-    status: z.enum(['Active', 'Archived']).default('Active'),
+    status: z.enum(['Active', 'Completed', 'Archived'])
+      .transform((status) => status === 'Archived' ? 'Completed' : status).default('Active'),
   }),
   assignments: z.object({
     title: z.string().trim().min(1).max(200),
@@ -30,6 +40,7 @@ const schemas = {
     status: z.enum(['Not Started', 'In Progress', 'Completed', 'Overdue']).default('Not Started'),
     prevStatus: z.enum(['Not Started', 'In Progress', 'Overdue']).nullable().optional(),
     estimatedTime: z.string().max(24).default('0h'),
+    dependencies: z.array(z.uuid()).max(100).default([]),
   }),
   exams: z.object({
     title: z.string().trim().min(1).max(200),
@@ -79,7 +90,7 @@ function pickPresentKeys<T extends Record<string, unknown>>(parsed: T, rawBody: 
   ) as Partial<T>;
 }
 
-const resources = Object.keys(schemas) as StudyResourceName[];
+const resources = Object.keys(studySchemas) as StudyResourceName[];
 
 function resource(value: string | string[] | undefined): StudyResourceName {
   if (typeof value !== 'string' || !resources.includes(value as StudyResourceName))
@@ -92,7 +103,7 @@ function param(value: string | string[] | undefined) {
   return value;
 }
 
-function validateSessionTimes(resourceName: StudyResourceName, body: Record<string, unknown>) {
+export function validateSessionTimes(resourceName: StudyResourceName, body: Record<string, unknown>) {
   if (resourceName !== 'course-sessions') return;
   if (typeof body.startTime === 'string' && typeof body.endTime === 'string' && body.endTime <= body.startTime) {
     throw new HttpError(400, 'Giờ kết thúc phải sau giờ bắt đầu.', 'INVALID_SESSION_TIME');
@@ -105,6 +116,7 @@ function validateSessionTimes(resourceName: StudyResourceName, body: Record<stri
 export function createStudyRouter(services: AppServices) {
   const router = Router();
   router.use(requireAuth(services.auth));
+  router.use('/courses/:courseId', createProjectResourcesRouter(new ProjectResourcesRepository('course'), 'course'));
   router.get(
     '/summary',
     asyncHandler(async (req, res) =>
@@ -119,7 +131,7 @@ export function createStudyRouter(services: AppServices) {
     '/:resource',
     asyncHandler(async (req, res) => {
       const name = resource(req.params.resource);
-      const body = schemas[name].parse(req.body);
+      const body = studySchemas[name].parse(req.body);
       validateSessionTimes(name, body as Record<string, unknown>);
       res.status(201).json(await services.study.create(req.userId!, name, body));
     }),
@@ -128,7 +140,7 @@ export function createStudyRouter(services: AppServices) {
     '/:resource/:id',
     asyncHandler(async (req, res) => {
       const name = resource(req.params.resource);
-      const parsed = schemas[name].partial().parse(req.body);
+      const parsed = studySchemas[name].partial().parse(req.body);
       const body = pickPresentKeys(parsed as Record<string, unknown>, req.body);
       validateSessionTimes(name, body);
       res.json(await services.study.update(req.userId!, name, param(req.params.id), body));

@@ -1,26 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Award,
   BookOpen,
-  Calendar,
   CalendarDays,
   Check,
   CheckCircle2,
-  ChevronDown,
+  ChevronRight,
   Circle,
   ClipboardList,
   Clock3,
   FileText,
-  Layers,
+  FolderOpen,
+  GitBranch,
+  Lightbulb,
   MapPin,
-  Pause,
+  Paperclip,
   Pencil,
-  Play,
   Plus,
-  RotateCcw,
   Search,
   Tag,
   Trash2,
@@ -33,14 +31,20 @@ import {
   type CourseSession,
   type Exam,
   type NoticeHandler,
-  type ScheduleItem,
+  type ProjectTimerState,
   type StudyLog,
   type StudyNote,
   type StudySummary,
 } from './api';
 import type { SearchTarget } from './GlobalSearch';
+import { CalendarDialog } from './CalendarEditors';
+import { CourseAssessment } from './CourseAssessment';
+import { formatProjectTime, ProjectDocuments, ProjectTimer } from './ProjectResources';
+import { courseLetterGrade } from './studyPlanning';
 
-export type StudyTab = 'all' | 'courses' | 'assignments' | 'exams' | 'notes' | 'schedule';
+export type StudyTab = 'courses' | 'assignments' | 'exams' | 'notes' | 'time' | 'recommendations' | 'documents' | 'course-schedule';
+
+const courseTabs: StudyTab[] = ['assignments', 'documents', 'exams', 'notes'];
 
 type Props = {
   userId: string;
@@ -50,9 +54,9 @@ type Props = {
   assignments: Assignment[];
   exams: Exam[];
   notes: StudyNote[];
-  scheduleItems: ScheduleItem[];
   summary: StudySummary | null;
   loading: boolean;
+  recommendations: ReactNode;
   onRefresh: () => Promise<void>;
   onNotice: NoticeHandler;
   activeTab?: StudyTab;
@@ -79,13 +83,8 @@ type CourseDraft = {
   instructor: string;
   credits: string;
   progress: string;
-  score10: string;
-  grade: string;
-  attendance: string;
-  studyHours: string;
-  aimStudyHours: string;
   color: string;
-  status: 'Active' | 'Archived';
+  status: Course['status'];
 };
 
 type SessionDraft = {
@@ -103,7 +102,7 @@ type AssignmentDraft = {
   deadline: string;
   priority: string;
   status: string;
-  estimatedTime: string;
+  dependencies: string[];
   courseId: string;
 };
 
@@ -124,21 +123,6 @@ type NoteDraft = {
   content: string;
 };
 
-type ScheduleDraft = {
-  title: string;
-  date: string;
-  time: string;
-  color: string;
-};
-
-type TimerState = {
-  startedAt: number | null;
-  elapsedSeconds: number;
-  date: string;
-  courseId: string;
-  note: string;
-};
-
 const todayString = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -151,11 +135,6 @@ const blankCourse: CourseDraft = {
   instructor: '',
   credits: '3',
   progress: '0',
-  score10: '',
-  grade: 'N/A',
-  attendance: '100',
-  studyHours: '0',
-  aimStudyHours: '45',
   color: '#4f8259',
   status: 'Active',
 };
@@ -175,7 +154,7 @@ const emptyAssignment = (): AssignmentDraft => ({
   deadline: todayString(),
   priority: 'Medium',
   status: 'Not Started',
-  estimatedTime: '2h',
+  dependencies: [],
   courseId: '',
 });
 
@@ -196,19 +175,12 @@ const emptyNote = (): NoteDraft => ({
   content: '',
 });
 
-const emptySchedule = (): ScheduleDraft => ({
-  title: '',
-  date: todayString(),
-  time: '08:00 - 09:30',
-  color: '#4f8259',
-});
-
-const blankTimer: TimerState = { startedAt: null, elapsedSeconds: 0, date: '', courseId: '', note: '' };
+const emptyStudyLog = () => ({ date: todayString(), courseId: '', minutes: '', note: '' });
 const weekdayNames = ['Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy', 'Chủ nhật'];
-const weekdayShortNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 
-const VALID_COURSE_STATUS = ['all', 'Active', 'Archived'];
-const VALID_ASSIGNMENT_STATUS = ['all', 'pending', 'Not Started', 'In Progress', 'Completed', 'Overdue'];
+const VALID_COURSE_STATUS = ['all', 'Active', 'Completed'];
+const courseStatusLabels: Record<Course['status'], string> = { Active: 'Đang học', Completed: 'Hoàn thành' };
+const VALID_ASSIGNMENT_STATUS = ['all', 'soon', 'pending', 'Not Started', 'In Progress', 'Completed', 'Overdue'];
 const VALID_PRIORITY = ['all', 'High', 'Medium', 'Low'];
 const VALID_ASSIGNMENT_SORT = ['deadline', 'priority', 'title'];
 const VALID_EXAM_STATE = ['all', 'upcoming', 'past'];
@@ -225,12 +197,6 @@ const dateLabel = (value: string) =>
   new Intl.DateTimeFormat('vi-VN', { weekday: 'short', day: 'numeric', month: 'numeric' }).format(
     new Date(`${value.slice(0, 10)}T12:00:00`),
   );
-
-const minutesOf = (value: string) => {
-  const [hours, minutes] = value.split(':').map(Number);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return 0;
-  return hours * 60 + minutes;
-};
 
 const daysUntil = (value: string) => {
   const [year, month, day] = value.slice(0, 10).split('-').map(Number);
@@ -257,73 +223,23 @@ const weekStartFor = (date: Date) => {
   return monday;
 };
 
-/**
- * Unifies study hours calculation across courses and study logs:
- * - Course hours = max(course.studyHours base, sum of logs for that course)
- * - Unassigned general study logs (!log.courseId) are added ONLY when includeUnassigned = true
- *   (i.e. when not filtering by a specific semester or course status).
- */
+const numberFormat = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 1 });
+
+function formatCourseStudyTime(seconds: number) {
+  const wholeSeconds = Math.round(seconds);
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor(wholeSeconds / 60) % 60;
+  const remainder = wholeSeconds % 60;
+  return [hours && `${hours} giờ`, minutes && `${minutes} phút`, remainder && `${remainder} giây`]
+    .filter(Boolean).join(' ') || '0 giờ';
+}
+
 export function computeUnifiedStudyHours(courses: Course[], logs: StudyLog[], includeUnassigned = true) {
-  const logMinutesByCourse = new Map<string, number>();
-  let unassignedMinutes = 0;
-  let totalLogMinutes = 0;
-
-  const courseIdSet = new Set(courses.map((c) => c.id));
-
-  for (const log of logs) {
-    if (log.courseId) {
-      if (courseIdSet.has(log.courseId)) {
-        totalLogMinutes += log.durationMinutes;
-      }
-      logMinutesByCourse.set(log.courseId, (logMinutesByCourse.get(log.courseId) ?? 0) + log.durationMinutes);
-    } else {
-      unassignedMinutes += log.durationMinutes;
-      if (includeUnassigned) {
-        totalLogMinutes += log.durationMinutes;
-      }
-    }
-  }
-
-  let totalHours = includeUnassigned ? unassignedMinutes / 60 : 0;
-  let targetHours = 0;
-
-  for (const course of courses) {
-    const loggedHoursForCourse = (logMinutesByCourse.get(course.id) ?? 0) / 60;
-    const courseStoredHours = Number(course.studyHours ?? 0);
-    totalHours += Math.max(courseStoredHours, loggedHoursForCourse);
-    targetHours += Number(course.aimStudyHours ?? 0);
-  }
-
-  return {
-    totalHours: Number(totalHours.toFixed(1)),
-    targetHours: Number(targetHours.toFixed(1)),
-    totalLogMinutes,
-    unassignedHours: Number((unassignedMinutes / 60).toFixed(1)),
-  };
-}
-
-/**
- * Strictly parses a time or time range string:
- * Allowed formats: "HH:mm" or "HH:mm - HH:mm" (00:00 to 23:59).
- * Rejects trailing/leading garbage, invalid hours (e.g. "25:00"), or end <= start.
- */
-export function parseTimeRange(timeStr: string): [number, number] | null {
-  const trimmed = timeStr.trim();
-  const match = /^(?:([01]?\d|2[0-3]):([0-5]\d))(?:\s*(?:-|–|—|đến|to)\s*(?:([01]?\d|2[0-3]):([0-5]\d)))?$/i.exec(
-    trimmed,
-  );
-  if (!match) return null;
-  const start = Number(match[1]) * 60 + Number(match[2]);
-  if (match[3] !== undefined && match[4] !== undefined) {
-    const end = Number(match[3]) * 60 + Number(match[4]);
-    return end > start ? [start, end] : null;
-  }
-  return [start, Math.min(1440, start + 60)];
-}
-
-function isoWeekday(dateIso: string): number {
-  const d = new Date(`${dateIso.slice(0, 10)}T12:00:00`);
-  return ((d.getDay() + 6) % 7) + 1; // 1 = Monday .. 7 = Sunday
+  const courseIds = new Set(courses.map(({ id }) => id));
+  const minutes = logs.reduce((sum, log) =>
+    (log.courseId ? courseIds.has(log.courseId) : includeUnassigned) ? sum + log.durationMinutes : sum, 0);
+  const seconds = courses.reduce((sum, course) => sum + (course.trackedSeconds ?? 0), 0);
+  return Number(((minutes * 60 + seconds) / 3600).toFixed(1));
 }
 
 const priorityRank: Record<string, number> = { High: 3, Medium: 2, Low: 1 };
@@ -340,15 +256,14 @@ export default function StudyPage({
   courses,
   sessions,
   logs,
-  assignments,
-  exams,
-  notes,
-  scheduleItems,
+  assignments: allAssignments,
+  exams: allExams,
+  notes: allNotes,
   summary,
   loading,
   onRefresh,
   onNotice,
-  activeTab = 'all',
+  activeTab = 'courses',
   onTabChange,
   selectedCourseId,
   selectedAssignmentId,
@@ -357,6 +272,7 @@ export default function StudyPage({
   onSelectStudyTarget,
   openTarget,
   onTargetOpened,
+  recommendations,
 }: Props) {
   const filterStorageKey = `lifeos:study-filters:${userId}`;
   const initialStored = useMemo(() => {
@@ -367,7 +283,13 @@ export default function StudyPage({
     }
   }, [filterStorageKey]);
 
-  const [tab, setTabState] = useState<StudyTab>(activeTab);
+  const [tabState, setTabState] = useState<StudyTab>(activeTab);
+  const courseWorkspace = courses.find((course) => course.id === selectedCourseId);
+  const workspaceId = courseWorkspace?.id;
+  const tab = workspaceId && !courseTabs.includes(tabState) ? 'assignments' : tabState;
+  const assignments = useMemo(() => workspaceId ? allAssignments.filter((item) => item.courseId === workspaceId) : allAssignments, [allAssignments, workspaceId]);
+  const exams = useMemo(() => workspaceId ? allExams.filter((item) => item.courseId === workspaceId) : allExams, [allExams, workspaceId]);
+  const notes = useMemo(() => workspaceId ? allNotes.filter((item) => item.courseId === workspaceId) : allNotes, [allNotes, workspaceId]);
   const [highlightedId, setHighlightedId] = useState<string | null>(
     selectedAssignmentId || selectedExamId || selectedNoteId || null,
   );
@@ -377,10 +299,9 @@ export default function StudyPage({
   const [editingCourse, setEditingCourse] = useState<string | null>(null);
   const [courseDraft, setCourseDraft] = useState<CourseDraft>(blankCourse);
   const [courseFormError, setCourseFormError] = useState('');
-  const [expandedCourse, setExpandedCourseState] = useState<string | null>(selectedCourseId ?? null);
   const [semesterFilter, setSemesterFilter] = useState<string>(() => initialStored.semesterFilter || 'all');
   const [courseStatusFilter, setCourseStatusFilter] = useState<string>(() =>
-    safeEnum(initialStored.courseStatusFilter, VALID_COURSE_STATUS, 'all'),
+    safeEnum(initialStored.courseStatusFilter === 'Archived' ? 'Completed' : initialStored.courseStatusFilter, VALID_COURSE_STATUS, 'all'),
   );
 
   // Assignments state
@@ -425,46 +346,38 @@ export default function StudyPage({
   const [noteTagFilter, setNoteTagFilter] = useState<string>(() => initialStored.noteTagFilter || 'all');
   const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
 
-  // Personal Schedule state
-  const [showScheduleForm, setShowScheduleForm] = useState(false);
-  const [editingSchedule, setEditingSchedule] = useState<string | null>(null);
-  const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft>(emptySchedule);
-  const [scheduleFormError, setScheduleFormError] = useState('');
-  const [scheduleViewMode, setScheduleViewMode] = useState<'week' | 'day'>('week');
-  const [selectedScheduleDate, setSelectedScheduleDate] = useState<string>(todayString);
-
-  // Timetable & Sessions state
-  const [showTimetable, setShowTimetable] = useState(false);
   const [sessionCourse, setSessionCourse] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [sessionDraft, setSessionDraft] = useState<SessionDraft>(blankSession);
   const [sessionFormError, setSessionFormError] = useState('');
+  const [showCourseSchedule, setShowCourseSchedule] = useState(false);
 
-  // Study timer state
+  // Study journal
   const [showLogForm, setShowLogForm] = useState(false);
-  const timerStorageKey = `lifeos:study-timer:${userId}`;
-  const [timer, setTimer] = useState<TimerState>(() => {
-    try {
-      return { ...blankTimer, ...JSON.parse(localStorage.getItem(timerStorageKey) ?? '{}') } as TimerState;
-    } catch {
-      return blankTimer;
-    }
-  });
-  const [clockNow, setClockNow] = useState(Date.now());
+  const [logDraft, setLogDraft] = useState(emptyStudyLog);
+  const [logError, setLogError] = useState('');
   const [weekOffset, setWeekOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [itemBusyId, setItemBusyId] = useState<string | null>(null);
+  const [resourceDialog, setResourceDialog] = useState<{ kind: 'files' | 'timer'; assignment: Assignment } | null>(null);
+  const [filesBusy, setFilesBusy] = useState(false);
+  const [courseTimer, setCourseTimer] = useState<ProjectTimerState | null>(null);
+  const [timerRevision, setTimerRevision] = useState(0);
+  const refreshTimerSummary = () => {
+    setTimerRevision((value) => value + 1);
+    void onRefresh().catch(() => undefined);
+  };
 
   const checkedDeepLinkRef = useRef<string | null>(null);
 
   const setTab = (next: StudyTab) => {
     setTabState(next);
-    onTabChange?.(next);
+    if (selectedCourseId) onSelectStudyTarget?.({ tab: next, courseId: selectedCourseId });
+    else onTabChange?.(next);
   };
 
-  const setExpandedCourse = (next: string | null) => {
-    setExpandedCourseState(next);
-    onSelectStudyTarget?.({ tab, courseId: next, assignmentId: null, examId: null, noteId: null });
+  const openCourse = (id: string | null) => {
+    onSelectStudyTarget?.({ tab: id ? 'assignments' : 'courses', courseId: id });
   };
 
   useEffect(() => {
@@ -472,10 +385,27 @@ export default function StudyPage({
   }, [activeTab]);
 
   useEffect(() => {
-    if (selectedCourseId !== undefined && selectedCourseId !== expandedCourse) {
-      setExpandedCourseState(selectedCourseId);
-    }
+    setShowCourseForm(false);
+    setShowAssignmentForm(false);
+    setShowExamForm(false);
+    setShowNoteForm(false);
+    setSessionCourse(null);
+    setShowCourseSchedule(false);
+    setResourceDialog(null);
+    setFilesBusy(false);
+    setCourseTimer(null);
   }, [selectedCourseId]);
+
+  useEffect(() => {
+    if (!workspaceId || tab !== 'assignments' || !assignments.length) return;
+    const controller = new AbortController();
+    void api<ProjectTimerState>(`/study/courses/${workspaceId}/timer`, { signal: controller.signal }).then((result) => {
+      if (!controller.signal.aborted) setCourseTimer(result);
+    }).catch(() => {
+      if (!controller.signal.aborted) setCourseTimer(null);
+    });
+    return () => controller.abort();
+  }, [workspaceId, assignments.length, tab, timerRevision]);
 
   const semesters = useMemo(() => {
     const set = new Set<string>();
@@ -555,24 +485,23 @@ export default function StudyPage({
   useEffect(() => {
     if (loading) return;
     const key = `${selectedCourseId ?? ''}:${selectedAssignmentId ?? ''}:${selectedExamId ?? ''}:${selectedNoteId ?? ''}`;
-    if (key === ':::' || checkedDeepLinkRef.current === key) return;
+    if (key === ':::') {
+      checkedDeepLinkRef.current = null;
+      return;
+    }
+    if (checkedDeepLinkRef.current === key) return;
     checkedDeepLinkRef.current = key;
 
     let targetElId = '';
-    if (selectedCourseId) {
-      if (!courses.some((c) => c.id === selectedCourseId)) {
-        onNotice({ message: 'Không tìm thấy môn học được liên kết hoặc môn học đã bị xóa.', type: 'warning' });
-        onSelectStudyTarget?.({ tab, courseId: null });
-        return;
-      }
-      setSemesterFilter('all');
-      setCourseStatusFilter('all');
-      setExpandedCourseState(selectedCourseId);
-      targetElId = `course-${selectedCourseId}`;
-    } else if (selectedAssignmentId) {
+    if (selectedCourseId && !workspaceId) {
+      onNotice({ message: 'Không tìm thấy môn học được liên kết hoặc môn học đã bị xóa.', type: 'warning' });
+      onSelectStudyTarget?.({ tab: 'courses', courseId: null });
+      return;
+    }
+    if (selectedAssignmentId) {
       if (!assignments.some((a) => a.id === selectedAssignmentId)) {
         onNotice({ message: 'Không tìm thấy bài tập được liên kết hoặc bài tập đã bị xóa.', type: 'warning' });
-        onSelectStudyTarget?.({ tab, assignmentId: null });
+        onSelectStudyTarget?.({ tab, courseId: workspaceId ?? null, assignmentId: null });
         return;
       }
       setAssignmentStatusFilter('all');
@@ -583,7 +512,7 @@ export default function StudyPage({
     } else if (selectedExamId) {
       if (!exams.some((e) => e.id === selectedExamId)) {
         onNotice({ message: 'Không tìm thấy kỳ thi được liên kết hoặc kỳ thi đã bị xóa.', type: 'warning' });
-        onSelectStudyTarget?.({ tab, examId: null });
+        onSelectStudyTarget?.({ tab, courseId: workspaceId ?? null, examId: null });
         return;
       }
       setExamCourseFilter('all');
@@ -593,7 +522,7 @@ export default function StudyPage({
     } else if (selectedNoteId) {
       if (!notes.some((n) => n.id === selectedNoteId)) {
         onNotice({ message: 'Không tìm thấy ghi chú được liên kết hoặc ghi chú đã bị xóa.', type: 'warning' });
-        onSelectStudyTarget?.({ tab, noteId: null });
+        onSelectStudyTarget?.({ tab, courseId: workspaceId ?? null, noteId: null });
         return;
       }
       setNoteCourseFilter('all');
@@ -619,6 +548,7 @@ export default function StudyPage({
   }, [
     loading,
     courses,
+    workspaceId,
     assignments,
     exams,
     notes,
@@ -637,31 +567,22 @@ export default function StudyPage({
     if (openTarget.kind === 'course' && openTarget.courseId) {
       setSemesterFilter('all');
       setCourseStatusFilter('all');
-      setExpandedCourseState(openTarget.courseId);
-      if (tab !== 'all' && tab !== 'courses') setTab('courses');
-      onSelectStudyTarget?.({ tab: tab === 'all' ? 'all' : 'courses', courseId: openTarget.courseId });
       targetElId = `course-${openTarget.courseId}`;
     } else if (openTarget.kind === 'assignment' && openTarget.assignmentId) {
       setAssignmentStatusFilter('all');
       setAssignmentPriorityFilter('all');
       setAssignmentCourseFilter('all');
-      if (tab !== 'all' && tab !== 'assignments') setTab('assignments');
-      onSelectStudyTarget?.({ tab: tab === 'all' ? 'all' : 'assignments', assignmentId: openTarget.assignmentId });
       targetElId = `assignment-${openTarget.assignmentId}`;
       setHighlightedId(openTarget.assignmentId);
     } else if (openTarget.kind === 'exam' && openTarget.examId) {
       setExamCourseFilter('all');
       setExamStateFilter('all');
-      if (tab !== 'all' && tab !== 'exams') setTab('exams');
-      onSelectStudyTarget?.({ tab: tab === 'all' ? 'all' : 'exams', examId: openTarget.examId });
       targetElId = `exam-${openTarget.examId}`;
       setHighlightedId(openTarget.examId);
     } else if (openTarget.kind === 'note' && openTarget.noteId) {
       setNoteCourseFilter('all');
       setNoteTagFilter('all');
       setNoteQuery('');
-      if (tab !== 'all' && tab !== 'notes') setTab('notes');
-      onSelectStudyTarget?.({ tab: tab === 'all' ? 'all' : 'notes', noteId: openTarget.noteId });
       targetElId = `note-${openTarget.noteId}`;
       setHighlightedId(openTarget.noteId);
     }
@@ -728,25 +649,10 @@ export default function StudyPage({
   );
 
   const currentWeekMinutes = weekDays.reduce((sum, day) => sum + (minutesByDate[day.iso] ?? 0), 0);
-  const unifiedStudy = useMemo(
+  const totalStudyHours = useMemo(
     () => computeUnifiedStudyHours(filteredCourses, logs, !isCourseScoped),
     [filteredCourses, logs, isCourseScoped],
   );
-
-  const timerActive = timer.startedAt !== null || timer.elapsedSeconds > 0;
-  const elapsedSeconds =
-    timer.elapsedSeconds + (timer.startedAt === null ? 0 : Math.max(0, Math.floor((clockNow - timer.startedAt) / 1000)));
-  const timerDisplay = `${String(Math.floor(elapsedSeconds / 3600)).padStart(2, '0')}:${String(Math.floor(elapsedSeconds / 60) % 60).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
-
-  useEffect(() => {
-    localStorage.setItem(timerStorageKey, JSON.stringify(timer));
-  }, [timerStorageKey, timer]);
-
-  useEffect(() => {
-    if (timer.startedAt === null) return;
-    const interval = window.setInterval(() => setClockNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [timer.startedAt]);
 
   const safeRefreshAfterMutation = async (successMessage: string) => {
     try {
@@ -772,10 +678,6 @@ export default function StudyPage({
     }
     const credits = Number(courseDraft.credits);
     const progress = Number(courseDraft.progress);
-    const attendance = Number(courseDraft.attendance);
-    const studyHours = Number(courseDraft.studyHours);
-    const aimStudyHours = Number(courseDraft.aimStudyHours);
-    const score10 = courseDraft.score10.trim() === '' ? null : Number(courseDraft.score10);
 
     if (Number.isNaN(credits) || credits < 0 || credits > 100) {
       setCourseFormError('Số tín chỉ phải từ 0 đến 100.');
@@ -783,18 +685,6 @@ export default function StudyPage({
     }
     if (Number.isNaN(progress) || progress < 0 || progress > 100) {
       setCourseFormError('Tiến độ môn học phải từ 0 đến 100%.');
-      return;
-    }
-    if (score10 !== null && (Number.isNaN(score10) || score10 < 0 || score10 > 10)) {
-      setCourseFormError('Điểm hệ 10 phải từ 0 đến 10.');
-      return;
-    }
-    if (Number.isNaN(attendance) || attendance < 0 || attendance > 100) {
-      setCourseFormError('Tỷ lệ chuyên cần phải từ 0 đến 100%.');
-      return;
-    }
-    if (Number.isNaN(studyHours) || studyHours < 0 || Number.isNaN(aimStudyHours) || aimStudyHours < 0) {
-      setCourseFormError('Giờ học không được là số âm.');
       return;
     }
 
@@ -808,11 +698,7 @@ export default function StudyPage({
       instructor: courseDraft.instructor.trim(),
       credits,
       progress,
-      score10,
-      grade: courseDraft.grade.trim() || 'N/A',
-      attendance,
-      studyHours,
-      aimStudyHours,
+      ...(!isEdit ? { absences: 0 } : {}),
       color: courseDraft.color.trim() || '#4f8259',
       status: courseDraft.status,
     };
@@ -850,7 +736,7 @@ export default function StudyPage({
     setItemBusyId(course.id);
     try {
       await api(`/study/courses/${course.id}`, { method: 'DELETE' });
-      if (expandedCourse === course.id) setExpandedCourse(null);
+      if (workspaceId === course.id) openCourse(null);
     } catch (error) {
       setItemBusyId(null);
       onNotice({ message: error instanceof Error ? error.message : 'Không xóa được môn học.', type: 'error' });
@@ -869,11 +755,6 @@ export default function StudyPage({
       instructor: course.instructor ?? '',
       credits: String(course.credits ?? 3),
       progress: String(course.progress ?? 0),
-      score10: course.score10 !== null && course.score10 !== undefined ? String(course.score10) : '',
-      grade: course.grade || 'N/A',
-      attendance: String(course.attendance ?? 100),
-      studyHours: String(course.studyHours ?? 0),
-      aimStudyHours: String(course.aimStudyHours ?? 45),
       color: course.color || '#4f8259',
       status: course.status || 'Active',
     });
@@ -900,8 +781,8 @@ export default function StudyPage({
       deadline: assignmentDraft.deadline,
       priority: assignmentDraft.priority,
       status: assignmentDraft.status || 'Not Started',
-      estimatedTime: assignmentDraft.estimatedTime.trim() || '0h',
-      courseId: assignmentDraft.courseId || null,
+      courseId: workspaceId || assignmentDraft.courseId || null,
+      ...(workspaceId ? { dependencies: assignmentDraft.dependencies } : {}),
     };
     setBusy(true);
     try {
@@ -942,7 +823,7 @@ export default function StudyPage({
       deadline: item.deadline.slice(0, 10),
       priority: item.priority,
       status: item.status || 'Not Started',
-      estimatedTime: item.estimatedTime || '2h',
+      dependencies: item.dependencies ?? [],
       courseId: item.courseId ?? '',
     });
     setEditingAssignment(item.id);
@@ -992,14 +873,21 @@ export default function StudyPage({
     return [...assignments]
       .filter((a) => {
         if (assignmentStatusFilter === 'pending' && a.status === 'Completed') return false;
+        if (assignmentStatusFilter === 'soon') {
+          const remaining = daysUntil(a.deadline);
+          if (a.status === 'Completed' || remaining < 0 || remaining > 7) return false;
+        }
+        if (assignmentStatusFilter === 'Overdue' && (a.status === 'Completed' || daysUntil(a.deadline) >= 0)) return false;
         if (
           assignmentStatusFilter !== 'all' &&
           assignmentStatusFilter !== 'pending' &&
+          assignmentStatusFilter !== 'soon' &&
+          assignmentStatusFilter !== 'Overdue' &&
           a.status !== assignmentStatusFilter
         )
           return false;
         if (assignmentPriorityFilter !== 'all' && a.priority !== assignmentPriorityFilter) return false;
-        if (assignmentCourseFilter !== 'all' && (a.courseId || '') !== assignmentCourseFilter) return false;
+        if (!workspaceId && assignmentCourseFilter !== 'all' && (a.courseId || '') !== assignmentCourseFilter) return false;
         return true;
       })
       .sort((a, b) => {
@@ -1009,9 +897,9 @@ export default function StudyPage({
         if (assignmentSort === 'title') {
           return a.title.localeCompare(b.title, 'vi');
         }
-        return a.deadline.localeCompare(b.deadline);
+        return Number(a.status === 'Completed') - Number(b.status === 'Completed') || a.deadline.localeCompare(b.deadline);
       });
-  }, [assignments, assignmentStatusFilter, assignmentPriorityFilter, assignmentCourseFilter, assignmentSort]);
+  }, [assignments, assignmentStatusFilter, assignmentPriorityFilter, assignmentCourseFilter, assignmentSort, workspaceId]);
 
   // --- Exam CRUD ---
   const executeSaveExam = async () => {
@@ -1034,7 +922,7 @@ export default function StudyPage({
     const isEdit = Boolean(editingExam);
     const payload = {
       title: examDraft.title.trim(),
-      courseId: examDraft.courseId || null,
+      courseId: workspaceId || examDraft.courseId || null,
       date: examDraft.date,
       type: examDraft.type,
       weight,
@@ -1122,14 +1010,14 @@ export default function StudyPage({
   const filteredExams = useMemo(() => {
     return [...exams]
       .filter((exam) => {
-        if (examCourseFilter !== 'all' && (exam.courseId || '') !== examCourseFilter) return false;
+        if (!workspaceId && examCourseFilter !== 'all' && (exam.courseId || '') !== examCourseFilter) return false;
         const remaining = daysUntil(exam.date);
         if (examStateFilter === 'upcoming' && remaining < 0) return false;
         if (examStateFilter === 'past' && remaining >= 0) return false;
         return true;
       })
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [exams, examCourseFilter, examStateFilter]);
+  }, [exams, examCourseFilter, examStateFilter, workspaceId]);
 
   // --- Note CRUD ---
   const executeSaveNote = async () => {
@@ -1158,7 +1046,7 @@ export default function StudyPage({
     const isEdit = Boolean(editingNote);
     const payload = {
       title: noteDraft.title.trim(),
-      courseId: noteDraft.courseId || null,
+      courseId: workspaceId || noteDraft.courseId || null,
       date: noteDraft.date || todayString(),
       tags: rawTags,
       content: noteDraft.content,
@@ -1223,7 +1111,7 @@ export default function StudyPage({
     const q = noteQuery.trim().toLocaleLowerCase('vi-VN');
     return [...notes]
       .filter((n) => {
-        if (noteCourseFilter !== 'all' && (n.courseId || '') !== noteCourseFilter) return false;
+        if (!workspaceId && noteCourseFilter !== 'all' && (n.courseId || '') !== noteCourseFilter) return false;
         if (noteTagFilter !== 'all' && !(n.tags ?? []).includes(noteTagFilter)) return false;
         if (q) {
           const text = `${n.title} ${n.content} ${(n.tags ?? []).join(' ')}`.toLocaleLowerCase('vi-VN');
@@ -1232,121 +1120,7 @@ export default function StudyPage({
         return true;
       })
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [notes, noteCourseFilter, noteTagFilter, noteQuery]);
-
-  // --- Personal Schedule CRUD & Conflict Detection ---
-  const detectScheduleConflict = (dateIso: string, timeStr: string, ignoreId?: string): string | null => {
-    const range = parseTimeRange(timeStr);
-    if (!range) return null;
-    const [start, end] = range;
-
-    // 1. Check conflict with other personal schedule items on the same date
-    for (const item of scheduleItems) {
-      if (item.id === ignoreId || item.date !== dateIso) continue;
-      const otherRange = parseTimeRange(item.time);
-      if (!otherRange) continue;
-      if (start < otherRange[1] && end > otherRange[0]) {
-        return `Trùng giờ với lịch cá nhân "${item.title}" (${item.time})`;
-      }
-    }
-
-    // 2. Check conflict with recurring course sessions on the corresponding weekday
-    const wday = isoWeekday(dateIso);
-    for (const sess of sessions) {
-      if (sess.weekday !== wday) continue;
-      const sStart = minutesOf(sess.startTime);
-      const sEnd = minutesOf(sess.endTime);
-      if (start < sEnd && end > sStart) {
-        const cName = courses.find((c) => c.id === sess.courseId)?.name ?? 'Môn học';
-        return `Trùng giờ với lớp học "${cName}" (${sess.startTime}–${sess.endTime})`;
-      }
-    }
-    return null;
-  };
-
-  const draftScheduleConflict = useMemo(
-    () =>
-      showScheduleForm && scheduleDraft.date && scheduleDraft.time
-        ? detectScheduleConflict(scheduleDraft.date, scheduleDraft.time, editingSchedule ?? undefined)
-        : null,
-    [showScheduleForm, scheduleDraft.date, scheduleDraft.time, editingSchedule, scheduleItems, sessions, courses],
-  );
-
-  const executeSaveScheduleItem = async () => {
-    if (busy) return;
-    setScheduleFormError('');
-    if (!scheduleDraft.title.trim()) {
-      setScheduleFormError('Tên sự kiện không được để trống.');
-      return;
-    }
-    if (!parseTimeRange(scheduleDraft.time)) {
-      const msg =
-        'Khung giờ không hợp lệ. Vui lòng nhập định dạng HH:mm hoặc HH:mm - HH:mm (00:00–23:59) với giờ kết thúc sau giờ bắt đầu.';
-      setScheduleFormError(msg);
-      onNotice({ message: msg, type: 'error' });
-      return;
-    }
-    const isEdit = Boolean(editingSchedule);
-    const payload = {
-      title: scheduleDraft.title.trim(),
-      date: scheduleDraft.date,
-      time: scheduleDraft.time.trim(),
-      color: scheduleDraft.color || '#4f8259',
-    };
-    setBusy(true);
-    try {
-      const path = isEdit ? `/study/schedule/${editingSchedule}` : '/study/schedule';
-      await api(path, { method: isEdit ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
-      setShowScheduleForm(false);
-      setEditingSchedule(null);
-      setScheduleDraft(emptySchedule());
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Không lưu được lịch cá nhân.';
-      setScheduleFormError(msg);
-      onNotice({
-        message: msg,
-        type: 'error',
-        retry: () => void executeSaveScheduleItem(),
-        retryLabel: 'Thử lưu lại',
-      });
-      setBusy(false);
-      return;
-    }
-    setBusy(false);
-    await safeRefreshAfterMutation(isEdit ? 'Đã cập nhật lịch cá nhân.' : 'Đã thêm lịch cá nhân.');
-  };
-
-  const saveScheduleItem = async (event: FormEvent) => {
-    event.preventDefault();
-    await executeSaveScheduleItem();
-  };
-
-  const startEditScheduleItem = (item: ScheduleItem) => {
-    setScheduleFormError('');
-    setScheduleDraft({
-      title: item.title,
-      date: item.date.slice(0, 10),
-      time: item.time,
-      color: item.color || '#4f8259',
-    });
-    setEditingSchedule(item.id);
-    setShowScheduleForm(true);
-  };
-
-  const deleteScheduleItem = async (item: ScheduleItem) => {
-    if (itemBusyId === item.id) return;
-    if (!window.confirm(`Xóa lịch cá nhân “${item.title}”?`)) return;
-    setItemBusyId(item.id);
-    try {
-      await api(`/study/schedule/${item.id}`, { method: 'DELETE' });
-    } catch (error) {
-      setItemBusyId(null);
-      onNotice({ message: error instanceof Error ? error.message : 'Không xóa được lịch cá nhân.', type: 'error' });
-      return;
-    }
-    setItemBusyId(null);
-    await safeRefreshAfterMutation('Đã xóa lịch cá nhân.');
-  };
+  }, [notes, noteCourseFilter, noteTagFilter, noteQuery, workspaceId]);
 
   // --- Course Session CRUD ---
   const executeSaveSession = async () => {
@@ -1423,7 +1197,7 @@ export default function StudyPage({
 
   const deleteSession = async (session: CourseSession) => {
     if (itemBusyId === session.id) return;
-    if (!window.confirm('Xóa buổi học này khỏi thời khóa biểu?')) return;
+    if (!window.confirm('Xóa buổi học này khỏi lịch trình?')) return;
     setItemBusyId(session.id);
     try {
       await api(`/study/course-sessions/${session.id}`, { method: 'DELETE' });
@@ -1433,71 +1207,37 @@ export default function StudyPage({
       return;
     }
     setItemBusyId(null);
-    await safeRefreshAfterMutation('Đã xóa buổi học khỏi thời khóa biểu.');
+    await safeRefreshAfterMutation('Đã xóa buổi học khỏi lịch trình.');
   };
 
-  // --- Stopwatch & Study Logs ---
-  const startTimer = () => {
-    const now = Date.now();
-    setClockNow(now);
-    setTimer((current) => ({ ...current, date: current.date || todayString(), startedAt: now }));
+  const startStudyLog = () => {
+    setLogDraft(emptyStudyLog());
+    setLogError('');
+    setShowLogForm(true);
   };
 
-  const pauseTimer = () => {
-    const now = Date.now();
-    setClockNow(now);
-    setTimer((current) => ({
-      ...current,
-      startedAt: null,
-      elapsedSeconds:
-        current.elapsedSeconds + (current.startedAt === null ? 0 : Math.max(0, Math.floor((now - current.startedAt) / 1000))),
-    }));
-  };
-
-  const discardTimer = () => {
-    if (!window.confirm('Bỏ phiên bấm giờ này? Thời gian chưa được lưu sẽ mất.')) return;
-    setTimer(blankTimer);
-  };
-
-  const saveLog = async () => {
+  const saveLog = async (event: FormEvent) => {
+    event.preventDefault();
     if (busy) return;
-    const now = Date.now();
-    const seconds =
-      timer.elapsedSeconds + (timer.startedAt === null ? 0 : Math.max(0, Math.floor((now - timer.startedAt) / 1000)));
-    if (seconds < 30) {
-      onNotice({ message: 'Hãy bấm giờ ít nhất 30 giây trước khi lưu.', type: 'warning' });
+    const durationMinutes = Number(logDraft.minutes);
+    if (!logDraft.date || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
+      setLogError('Chọn ngày học và nhập từ 1 đến 1.440 phút.');
       return;
     }
-    const durationMinutes = Math.max(1, Math.round(seconds / 60));
-    const targetCourseId = timer.courseId || null;
-    setTimer((current) => ({ ...current, startedAt: null, elapsedSeconds: seconds }));
+    setLogError('');
     setBusy(true);
     try {
-      await api('/study/study-logs', {
-        method: 'POST',
-        body: JSON.stringify({
-          date: timer.date || todayString(),
-          durationMinutes,
-          courseId: targetCourseId,
-          note: timer.note.trim(),
-        }),
-      });
-      setTimer(blankTimer);
-      setShowLogForm(false);
+      await api('/study/study-logs', { method: 'POST', body: JSON.stringify({
+        date: logDraft.date, durationMinutes, courseId: logDraft.courseId || null, note: logDraft.note.trim(),
+      }) });
     } catch (error) {
-      const msg =
-        error instanceof Error ? error.message : 'Không lưu được thời gian học. Phiên bấm giờ đã được giữ để thử lại.';
-      onNotice({
-        message: msg,
-        type: 'error',
-        retry: () => void saveLog(),
-        retryLabel: 'Thử lưu lại',
-      });
+      setLogError(error instanceof Error ? error.message : 'Không lưu được thời gian học.');
       setBusy(false);
       return;
     }
+    setShowLogForm(false);
     setBusy(false);
-    await safeRefreshAfterMutation(`Đã lưu ${durationMinutes} phút học vào heatmap.`);
+    await safeRefreshAfterMutation('Đã lưu thời gian học.');
   };
 
   const deleteLog = async (log: StudyLog) => {
@@ -1525,12 +1265,6 @@ export default function StudyPage({
       }),
     [courses],
   );
-
-  const editingCourseLoggedHours = useMemo(() => {
-    if (!editingCourse) return 0;
-    const mins = logs.filter((l) => l.courseId === editingCourse).reduce((s, l) => s + l.durationMinutes, 0);
-    return Number((mins / 60).toFixed(1));
-  }, [editingCourse, logs]);
 
   const sessionForm = (courseId: string) =>
     sessionCourse === courseId && (
@@ -1631,15 +1365,270 @@ export default function StudyPage({
       </form>
     );
 
-  const showCoursesSection = tab === 'all' || tab === 'courses';
-  const showScheduleSection = tab === 'all' || tab === 'courses' || tab === 'schedule';
-  const showAssignmentsSection = tab === 'all' || tab === 'assignments';
-  const showExamsSection = tab === 'all' || tab === 'exams';
-  const showNotesSection = tab === 'all' || tab === 'notes';
+  const renderCourseSchedule = (course: Course) => {
+    const courseSessions = sessions.filter((session) => session.courseId === course.id)
+      .sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime));
+    return <CalendarDialog title="Lịch học" busy={busy} wide onClose={() => {
+      setShowCourseSchedule(false);
+      setSessionCourse(null);
+      setEditingSession(null);
+      if (tabState === 'course-schedule') setTab('assignments');
+    }}>
+      <div className="course-schedule-pane">
+        <div className="course-session-list">
+          {courseSessions.length ? (
+            courseSessions.map((session) => (
+              <div className="course-session-row" key={session.id}>
+                <div className="session-time">
+                  <strong>{weekdayNames[session.weekday - 1]}</strong>
+                  <span>
+                    {session.startTime}–{session.endTime} · Tiết {session.periodStart}
+                    {session.periodEnd !== session.periodStart ? `–${session.periodEnd}` : ''}
+                  </span>
+                </div>
+                <span className="session-location">
+                  <MapPin size={13} />
+                  {[session.location, session.room].filter(Boolean).join(' · ') ||
+                    'Chưa đặt địa điểm/phòng'}
+                </span>
+                <div className="course-card-actions">
+                  <button
+                    className="icon-button"
+                    type="button"
+                    title="Sửa lịch học"
+                    aria-label="Sửa lịch học"
+                    onClick={() => beginEditSession(session)}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    className="icon-button danger-icon"
+                    type="button"
+                    disabled={itemBusyId === session.id}
+                    title="Xóa lịch học"
+                    aria-label="Xóa lịch học"
+                    onClick={() => void deleteSession(session)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="course-no-sessions">Chưa có lịch lên lớp.</div>
+          )}
+        </div>
+        <button
+          className="text-button add-session-button"
+          type="button"
+          onClick={() => {
+            setSessionCourse(course.id);
+            setEditingSession(null);
+            setSessionFormError('');
+            setSessionDraft(blankSession);
+          }}
+        >
+          <Plus size={14} /> Thêm buổi học
+        </button>
+        {sessionForm(course.id)}
+      </div>
+    </CalendarDialog>;
+  };
+
+  const showCoursesSection = !workspaceId && tab === 'courses';
+  const showAssignmentsSection = tab === 'assignments';
+  const showExamsSection = tab === 'exams';
+  const showNotesSection = tab === 'notes';
+
+  const studyTabs = courseWorkspace ? [
+    { id: 'assignments', label: 'Bài tập', icon: ClipboardList, count: undefined },
+    { id: 'documents', label: 'Tài liệu', icon: FolderOpen, count: undefined },
+    { id: 'exams', label: 'Kỳ thi', icon: Award, count: undefined },
+    { id: 'notes', label: 'Ghi chú', icon: FileText, count: undefined },
+  ] as const : [
+    { id: 'courses', label: 'Môn học', icon: BookOpen, count: courses.length },
+    { id: 'assignments', label: 'Bài tập', icon: ClipboardList, count: assignments.filter((item) => item.status !== 'Completed').length },
+    { id: 'exams', label: 'Kỳ thi', icon: Award, count: exams.length },
+    { id: 'notes', label: 'Ghi chú', icon: FileText, count: notes.length },
+    { id: 'time', label: 'Nhật ký học', icon: Clock3, count: undefined },
+    { id: 'recommendations', label: 'Gợi ý học', icon: Lightbulb, count: undefined },
+  ] as const;
+
+  const startNewAssignment = () => {
+    setEditingAssignment(null);
+    setAssignmentFormError('');
+    setAssignmentDraft({ ...emptyAssignment(), courseId: workspaceId ?? '' });
+    setShowAssignmentForm(true);
+  };
+  const assignmentNames = new Map(assignments.map((assignment) => [assignment.id, assignment.title]));
+  const completedAssignments = assignments.filter((assignment) => assignment.status === 'Completed').length;
+  const courseLogMinutes = courseWorkspace ? logs
+    .filter((log) => log.courseId === courseWorkspace.id).reduce((minutes, log) => minutes + log.durationMinutes, 0) : 0;
+  const courseTimedSeconds = courseWorkspace?.trackedSeconds ?? 0;
+  const timeSources = [courseLogMinutes > 0 && 'Nhật ký học', courseTimedSeconds > 0 && 'Bấm giờ'].filter(Boolean);
+  const courseEditor = showCourseForm && (showCoursesSection || courseWorkspace) ? (
+    <form className={courseWorkspace ? "study-editor course-modal-editor" : "panel study-editor"} onSubmit={(event) => void saveCourse(event)}>
+      {!courseWorkspace && <div className="panel-heading">
+        <div>
+          <h3>{editingCourse ? 'Chỉnh sửa môn học' : 'Thêm môn học'}</h3>
+        </div>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="Đóng"
+          onClick={() => {
+            setShowCourseForm(false);
+            setEditingCourse(null);
+            setCourseFormError('');
+            setCourseDraft(blankCourse);
+          }}
+        >
+          <X size={17} />
+        </button>
+      </div>}
+      <div className="study-form-grid">
+        <label>
+          Tên môn học
+          <input
+            autoFocus
+            value={courseDraft.name}
+            onChange={(event) => setCourseDraft({ ...courseDraft, name: event.target.value })}
+            required
+            maxLength={160}
+            placeholder="Ví dụ: Cơ sở dữ liệu"
+          />
+        </label>
+        <label>
+          Mã môn
+          <input
+            value={courseDraft.code}
+            onChange={(event) => setCourseDraft({ ...courseDraft, code: event.target.value })}
+            maxLength={40}
+            placeholder="Ví dụ: IT301"
+          />
+        </label>
+        <label>
+          Học kỳ
+          <input
+            value={courseDraft.semester}
+            onChange={(event) => setCourseDraft({ ...courseDraft, semester: event.target.value })}
+            maxLength={40}
+            placeholder="Ví dụ: HK1 2026-2027"
+          />
+        </label>
+        <label>
+          Giảng viên
+          <input
+            value={courseDraft.instructor}
+            onChange={(event) => setCourseDraft({ ...courseDraft, instructor: event.target.value })}
+            maxLength={120}
+            placeholder="Tên giảng viên"
+          />
+        </label>
+        <label>
+          Số tín chỉ
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.5"
+            value={courseDraft.credits}
+            onChange={(event) => setCourseDraft({ ...courseDraft, credits: event.target.value })}
+          />
+        </label>
+        <label>
+          Tiến độ (%)
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={courseDraft.progress}
+            onChange={(event) => setCourseDraft({ ...courseDraft, progress: event.target.value })}
+          />
+        </label>
+        <label>
+          Trạng thái môn
+          <select
+            value={courseDraft.status}
+            onChange={(event) =>
+              setCourseDraft({ ...courseDraft, status: event.target.value as Course['status'] })
+            }
+          >
+            <option value="Active">{courseStatusLabels.Active}</option>
+            <option value="Completed">{courseStatusLabels.Completed}</option>
+          </select>
+        </label>
+        <label>
+          Màu nhãn môn học
+          <input
+            type="color"
+            value={courseDraft.color || '#4f8259'}
+            onChange={(event) => setCourseDraft({ ...courseDraft, color: event.target.value })}
+          />
+        </label>
+      </div>
+      {courseFormError && (
+        <div className="form-error" role="alert">
+          {courseFormError}
+        </div>
+      )}
+      <div className="study-editor-actions">
+        <button className="primary-button" disabled={busy}>
+          {busy ? 'Đang lưu…' : editingCourse ? 'Lưu thay đổi' : 'Thêm môn'}
+        </button>
+        <button
+          className="soft-button"
+          type="button"
+          onClick={() => {
+            setShowCourseForm(false);
+            setEditingCourse(null);
+            setCourseFormError('');
+          }}
+        >
+          Hủy
+        </button>
+        {courseWorkspace && editingCourse && <button type="button" className="soft-button danger-course-button"
+          disabled={busy || itemBusyId === courseWorkspace.id} onClick={() => void deleteCourse(courseWorkspace)}><Trash2 size={14} /> Xóa môn</button>}
+      </div>
+    </form>
+  ) : null;
+
+  if (selectedCourseId && loading && !courseWorkspace) return <p role="status">Đang tải môn học…</p>;
 
   return (
     <>
-      <div className="page-heading">
+      {courseWorkspace ? <header className="project-detail-header planning-page course-workspace-header" id={`course-${courseWorkspace.id}`}>
+        <div className="course-workspace-controls">
+          <a href="/study" className="soft-button project-back" onClick={(event) => {
+            if (!onSelectStudyTarget || event.button !== 0 || event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return;
+            event.preventDefault();
+            openCourse(null);
+          }}><ArrowLeft size={16} aria-hidden="true" /> Quay lại danh sách</a>
+          <div className="course-workspace-actions">
+            <button type="button" className="soft-button" onClick={() => setShowCourseSchedule(true)}><CalendarDays size={16} /> Lịch học</button>
+            <button type="button" className="icon-button" title="Sửa môn" aria-label="Sửa môn" onClick={() => startEditCourse(courseWorkspace)}>
+              <Pencil size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="course-workspace-title">
+          <h1>{courseWorkspace.name}</h1>
+          <div className="project-detail-meta">
+            {courseWorkspace.code && <span>{courseWorkspace.code}</span>}
+            {courseWorkspace.semester && <span>{courseWorkspace.semester}</span>}
+            <span>{numberFormat.format(courseWorkspace.credits)} tín chỉ</span>
+            <span>{courseStatusLabels[courseWorkspace.status]}</span>
+          </div>
+        </div>
+        <CourseAssessment key={courseWorkspace.id} course={courseWorkspace} onSaved={onRefresh}>
+          <div>
+            <dt>Giờ đã học</dt>
+            <dd>{formatCourseStudyTime(courseLogMinutes * 60 + courseTimedSeconds)}</dd>
+            {timeSources.length > 0 && <dd className="course-time-source">{timeSources.join(' · ')}</dd>}
+          </div>
+          <div><dt>Bài tập đã xong</dt><dd>{completedAssignments}/{assignments.length}</dd></div>
+        </CourseAssessment>
+      </header> : <div className="page-heading">
         <div>
           <div className="eyebrow">
             <span /> HỌC TẬP CÓ CHỦ ĐÍCH
@@ -1647,36 +1636,21 @@ export default function StudyPage({
           <h1>Không gian học tập</h1>
           <p>Quản lý môn học, lịch lên lớp, bài tập, kỳ thi, ghi chú và thời gian tự học.</p>
         </div>
-        <div className="study-heading-actions">
-          <button className="soft-button" type="button" onClick={() => setShowLogForm((value) => !value)}>
-            <Clock3 size={16} /> Ghi thời gian học
-          </button>
-          <button
-            className="soft-button"
-            type="button"
-            onClick={() => {
-              setEditingAssignment(null);
-              setAssignmentFormError('');
-              setAssignmentDraft(emptyAssignment());
-              setShowAssignmentForm((value) => !value);
-            }}
-          >
-            <Plus size={16} /> Thêm bài tập
-          </button>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => {
-              setEditingCourse(null);
-              setCourseFormError('');
-              setCourseDraft(blankCourse);
-              setShowCourseForm((value) => !value);
-            }}
-          >
-            <Plus size={17} /> Thêm môn học
-          </button>
-        </div>
-      </div>
+        {(showCoursesSection || showAssignmentsSection) && (
+          <div className="study-heading-actions">
+            {showCoursesSection ? (
+              <button className="primary-button" type="button" onClick={() => {
+                setEditingCourse(null);
+                setCourseFormError('');
+                setCourseDraft(blankCourse);
+                setShowCourseForm((value) => !value);
+              }}><Plus size={17} /> Thêm môn học</button>
+            ) : (
+              <button className="primary-button" type="button" onClick={startNewAssignment}><Plus size={16} /> Thêm bài tập</button>
+            )}
+          </div>
+        )}
+      </div>}
 
       {loading && (
         <div className="loading-bar">
@@ -1684,846 +1658,410 @@ export default function StudyPage({
         </div>
       )}
 
-      <div className="study-summary-grid">
-        <SummaryCard
-          label={isCourseScoped ? 'Môn trong bộ lọc' : 'Môn đang học'}
-          value={String(
-            isCourseScoped
-              ? filteredCourses.filter((c) => (c.status || 'Active') === 'Active').length
-              : courses.filter((c) => (c.status || 'Active') === 'Active').length || (summary?.activeCourses ?? 0),
-          )}
-          detail={
-            isCourseScoped
-              ? `Đang lọc ${filteredCourses.length}/${courses.length} môn`
-              : `${courses.length} môn tổng cộng`
-          }
-          icon={<BookOpen size={18} />}
-          tone="violet"
-        />
-        <SummaryCard
-          label="Bài tập & Kỳ thi"
-          value={`${scopedAssignmentsForSummary.filter((a) => a.status !== 'Completed').length} / ${scopedExamsForSummary.filter((e) => daysUntil(e.date) >= 0).length}`}
-          detail={isCourseScoped ? 'Trong phạm vi môn đang lọc' : 'Bài tập chờ · Kỳ thi sắp tới'}
-          icon={<CalendarDays size={18} />}
-          tone="amber"
-        />
-        <SummaryCard
-          label={isCourseScoped ? 'Giờ học (phạm vi lọc)' : 'Giờ học tích lũy'}
-          value={`${unifiedStudy.totalHours}h`}
-          detail={
-            isCourseScoped
-              ? `Mục tiêu phạm vi: ${unifiedStudy.targetHours}h (không gồm tự học chung)`
-              : `Tuần này: ${Math.floor(currentWeekMinutes / 60)}h ${currentWeekMinutes % 60}m · Mục tiêu ${unifiedStudy.targetHours}h`
-          }
-          icon={<Clock3 size={18} />}
-          tone="blue"
-        />
+      <div
+        className={`study-tabs-bar panel${workspaceId ? ' course-workspace-tabs' : ''}`}
+        role="tablist"
+        aria-label="Phân khu học tập"
+        onKeyDown={(event) => {
+          const index = studyTabs.findIndex((item) => item.id === tab);
+          const last = studyTabs.length - 1;
+          const next = event.key === 'ArrowRight' ? (index + 1) % studyTabs.length
+            : event.key === 'ArrowLeft' ? (index + last) % studyTabs.length
+            : event.key === 'Home' ? 0 : event.key === 'End' ? last : null;
+          if (next === null) return;
+          event.preventDefault();
+          setTab(studyTabs[next].id);
+          event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+        }}
+      >
+        <div className="study-tabs-list">
+          {studyTabs.map(({ id, label, icon: Icon, count }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              tabIndex={tab === id ? 0 : -1}
+              className={`study-tab-btn ${tab === id ? 'active' : ''}`}
+              onClick={() => setTab(id)}
+            >
+              <Icon size={15} /> {label} {count !== undefined && <small>{count}</small>}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Study Navigation Tabs */}
-      <div className="study-tabs-bar panel" role="tablist" aria-label="Phân khu học tập">
-        <div className="study-tabs-list">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'all'}
-            className={`study-tab-btn ${tab === 'all' ? 'active' : ''}`}
-            onClick={() => setTab('all')}
-          >
-            <Layers size={15} /> Tất cả
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'courses'}
-            className={`study-tab-btn ${tab === 'courses' ? 'active' : ''}`}
-            onClick={() => setTab('courses')}
-          >
-            <BookOpen size={15} /> Môn học <small>{courses.length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'assignments'}
-            className={`study-tab-btn ${tab === 'assignments' ? 'active' : ''}`}
-            onClick={() => setTab('assignments')}
-          >
-            <ClipboardList size={15} /> Bài tập <small>{assignments.filter((a) => a.status !== 'Completed').length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'exams'}
-            className={`study-tab-btn ${tab === 'exams' ? 'active' : ''}`}
-            onClick={() => setTab('exams')}
-          >
-            <Award size={15} /> Kỳ thi <small>{exams.length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'notes'}
-            className={`study-tab-btn ${tab === 'notes' ? 'active' : ''}`}
-            onClick={() => setTab('notes')}
-          >
-            <FileText size={15} /> Ghi chú <small>{notes.length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'schedule'}
-            className={`study-tab-btn ${tab === 'schedule' ? 'active' : ''}`}
-            onClick={() => setTab('schedule')}
-          >
-            <Calendar size={15} /> Lịch <small>{sessions.length + scheduleItems.length}</small>
-          </button>
+      {tab === 'recommendations' && !loading && recommendations}
+      {courseWorkspace && (showCourseSchedule || tabState === 'course-schedule') && renderCourseSchedule(courseWorkspace)}
+      {courseWorkspace && tab === 'documents' && <section className="panel planning-panel planning-page">
+        <h2>Tài liệu môn học</h2>
+        <ProjectDocuments courseId={courseWorkspace.id} tasks={assignments} onOpenTask={(assignmentId) =>
+          onSelectStudyTarget?.({ tab: 'assignments', courseId: courseWorkspace.id, assignmentId })} />
+      </section>}
+      {(showCoursesSection || tab === 'time') && (
+        <div className="study-summary-grid">
+          <SummaryCard
+            label={isCourseScoped ? 'Môn trong bộ lọc' : 'Môn đang học'}
+            value={String(
+              isCourseScoped
+                ? filteredCourses.length
+                : courses.filter((c) => (c.status || 'Active') === 'Active').length || (summary?.activeCourses ?? 0),
+            )}
+            detail={
+              isCourseScoped
+                ? `Đang lọc ${filteredCourses.length}/${courses.length} môn`
+                : `${courses.length} môn tổng cộng`
+            }
+            icon={<BookOpen size={18} />}
+            tone="violet"
+          />
+          <SummaryCard
+            label="Bài tập & Kỳ thi"
+            value={`${scopedAssignmentsForSummary.filter((a) => a.status !== 'Completed').length} / ${scopedExamsForSummary.filter((e) => daysUntil(e.date) >= 0).length}`}
+            detail={isCourseScoped ? 'Trong phạm vi môn đang lọc' : 'Bài tập chờ · Kỳ thi sắp tới'}
+            icon={<CalendarDays size={18} />}
+            tone="amber"
+          />
+          <SummaryCard
+            label={isCourseScoped ? 'Giờ học (phạm vi lọc)' : 'Giờ học tích lũy'}
+            value={`${totalStudyHours}h`}
+            detail={
+              isCourseScoped
+                ? 'Theo các môn đang lọc'
+                : undefined
+            }
+            icon={<Clock3 size={18} />}
+            tone="blue"
+          />
         </div>
-        <div className="study-quick-add">
-          <button
-            type="button"
-            className="soft-button compact-btn"
-            onClick={() => {
-              setEditingExam(null);
-              setExamFormError('');
-              setExamDraft(emptyExam());
-              setShowExamForm((v) => !v);
-            }}
-          >
-            <Plus size={14} /> Thêm kỳ thi
-          </button>
-          <button
-            type="button"
-            className="soft-button compact-btn"
-            onClick={() => {
-              setEditingNote(null);
-              setNoteFormError('');
-              setNoteDraft(emptyNote());
-              setShowNoteForm((v) => !v);
-            }}
-          >
-            <Plus size={14} /> Thêm ghi chú
-          </button>
-          <button
-            type="button"
-            className="soft-button compact-btn"
-            onClick={() => {
-              setEditingSchedule(null);
-              setScheduleFormError('');
-              setScheduleDraft(emptySchedule());
-              setShowScheduleForm((v) => !v);
-            }}
-          >
-            <Plus size={14} /> Thêm sự kiện
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Assignment Form */}
-      {showAssignmentForm && (
-        <form className="panel study-editor" onSubmit={(event) => void saveAssignment(event)}>
-          <div className="panel-heading">
-            <div>
-              <h3>{editingAssignment ? 'Chỉnh sửa bài tập' : 'Thêm bài tập'}</h3>
-              <p>Đặt hạn nộp, trạng thái, thời lượng ước tính và mức ưu tiên cho bài tập.</p>
+      {showAssignmentsSection && showAssignmentForm && (
+        <CalendarDialog title={editingAssignment ? 'Chỉnh sửa bài tập' : 'Thêm bài tập'} busy={busy} wide onClose={() => {
+          setShowAssignmentForm(false);
+          setEditingAssignment(null);
+          setAssignmentFormError('');
+        }}>
+          <form className="study-editor course-modal-editor" onSubmit={(event) => void saveAssignment(event)}>
+            <div className="study-form-grid assignment-form-grid">
+              <label>
+                Tên bài tập
+                <input
+                  autoFocus
+                  value={assignmentDraft.title}
+                  onChange={(event) => setAssignmentDraft({ ...assignmentDraft, title: event.target.value })}
+                  required
+                  maxLength={200}
+                  placeholder="Ví dụ: Nộp báo cáo cuối kỳ"
+                />
+              </label>
+              <label>
+                Ngày nộp
+                <input
+                  type="date"
+                  value={assignmentDraft.deadline}
+                  onChange={(event) => setAssignmentDraft({ ...assignmentDraft, deadline: event.target.value })}
+                  required
+                />
+              </label>
+              {!workspaceId && <label>
+                Môn học
+                <select
+                  value={assignmentDraft.courseId}
+                  onChange={(event) => setAssignmentDraft({ ...assignmentDraft, courseId: event.target.value })}
+                >
+                  <option value="">Chưa gắn môn học</option>
+                  {courseOptions.map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.name}
+                      {course.status === 'Completed' ? ' (Hoàn thành)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>}
+              <label>
+                Ưu tiên
+                <select
+                  value={assignmentDraft.priority}
+                  onChange={(event) => setAssignmentDraft({ ...assignmentDraft, priority: event.target.value })}
+                >
+                  <option value="High">Cao</option>
+                  <option value="Medium">Vừa</option>
+                  <option value="Low">Thấp</option>
+                </select>
+              </label>
+              <label>
+                Trạng thái
+                <select
+                  value={assignmentDraft.status}
+                  onChange={(event) => setAssignmentDraft({ ...assignmentDraft, status: event.target.value })}
+                >
+                  <option value="Not Started">Chưa bắt đầu</option>
+                  <option value="In Progress">Đang làm</option>
+                  <option value="Completed">Hoàn thành</option>
+                  <option value="Overdue">Quá hạn</option>
+                </select>
+              </label>
             </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Đóng"
-              onClick={() => {
-                setShowAssignmentForm(false);
-                setEditingAssignment(null);
-                setAssignmentFormError('');
-                setAssignmentDraft(emptyAssignment());
-              }}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <div className="study-form-grid assignment-form-grid">
-            <label>
-              Tên bài tập
-              <input
-                autoFocus
-                value={assignmentDraft.title}
-                onChange={(event) => setAssignmentDraft({ ...assignmentDraft, title: event.target.value })}
-                required
-                maxLength={200}
-                placeholder="Ví dụ: Nộp báo cáo cuối kỳ"
-              />
-            </label>
-            <label>
-              Ngày nộp
-              <input
-                type="date"
-                value={assignmentDraft.deadline}
-                onChange={(event) => setAssignmentDraft({ ...assignmentDraft, deadline: event.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Môn học
-              <select
-                value={assignmentDraft.courseId}
-                onChange={(event) => setAssignmentDraft({ ...assignmentDraft, courseId: event.target.value })}
+            {workspaceId && <details className="project-task-options" open={assignmentDraft.dependencies.length > 0 || undefined}>
+              <summary>Phụ thuộc bài tập cùng môn{assignmentDraft.dependencies.length ? ` (${assignmentDraft.dependencies.length})` : ''}</summary>
+              {assignments.some((item) => item.id !== editingAssignment) ? <div className="project-dependencies">
+                {assignments.filter((item) => item.id !== editingAssignment).map((item) => <label key={item.id}>
+                  <input type="checkbox" checked={assignmentDraft.dependencies.includes(item.id)} disabled={busy} onChange={(event) => {
+                    const checked = event.target.checked;
+                    setAssignmentDraft((current) => ({ ...current, dependencies: checked ? [...current.dependencies, item.id]
+                      : current.dependencies.filter((id) => id !== item.id) }));
+                  }} /> {item.title}
+                </label>)}
+              </div> : <p>Chưa có bài tập khác trong môn này.</p>}
+            </details>}
+            {assignmentFormError && (
+              <div className="form-error" role="alert">
+                {assignmentFormError}
+              </div>
+            )}
+            <div className="study-editor-actions">
+              <button className="primary-button" disabled={busy}>
+                {busy ? 'Đang lưu…' : editingAssignment ? 'Lưu thay đổi' : 'Thêm bài tập'}
+              </button>
+              <button
+                className="soft-button"
+                type="button"
+                onClick={() => {
+                  setShowAssignmentForm(false);
+                  setEditingAssignment(null);
+                  setAssignmentFormError('');
+                }}
               >
-                <option value="">Chưa gắn môn học</option>
-                {courseOptions.map((course) => (
-                  <option key={course.id} value={course.id}>
-                    {course.name}
-                    {course.status === 'Archived' ? ' (Đã lưu trữ)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Ưu tiên
-              <select
-                value={assignmentDraft.priority}
-                onChange={(event) => setAssignmentDraft({ ...assignmentDraft, priority: event.target.value })}
-              >
-                <option value="High">Cao</option>
-                <option value="Medium">Vừa</option>
-                <option value="Low">Thấp</option>
-              </select>
-            </label>
-            <label>
-              Trạng thái
-              <select
-                value={assignmentDraft.status}
-                onChange={(event) => setAssignmentDraft({ ...assignmentDraft, status: event.target.value })}
-              >
-                <option value="Not Started">Chưa bắt đầu</option>
-                <option value="In Progress">Đang làm</option>
-                <option value="Completed">Hoàn thành</option>
-                <option value="Overdue">Quá hạn</option>
-              </select>
-            </label>
-            <label>
-              Thời lượng ước tính
-              <input
-                value={assignmentDraft.estimatedTime}
-                onChange={(event) => setAssignmentDraft({ ...assignmentDraft, estimatedTime: event.target.value })}
-                maxLength={24}
-                placeholder="Ví dụ: 4h"
-              />
-            </label>
-          </div>
-          {assignmentFormError && (
-            <div className="form-error" role="alert">
-              {assignmentFormError}
+                Hủy
+              </button>
             </div>
-          )}
-          <div className="study-editor-actions">
-            <button className="primary-button" disabled={busy}>
-              {busy ? 'Đang lưu…' : editingAssignment ? 'Lưu thay đổi' : 'Thêm bài tập'}
-            </button>
-            <button
-              className="soft-button"
-              type="button"
-              onClick={() => {
-                setShowAssignmentForm(false);
-                setEditingAssignment(null);
-                setAssignmentFormError('');
-              }}
-            >
-              Hủy
-            </button>
-          </div>
-        </form>
+          </form>
+        </CalendarDialog>
       )}
 
       {/* Course Form */}
-      {showCourseForm && (
-        <form className="panel study-editor" onSubmit={(event) => void saveCourse(event)}>
-          <div className="panel-heading">
-            <div>
-              <h3>{editingCourse ? 'Chỉnh sửa môn học' : 'Thêm môn học'}</h3>
-              <p>
-                Giờ học hiển thị của môn = max(Giờ nền đã nhập, Tổng giờ log bấm giờ của môn).
-                {editingCourse ? ` Hiện tại log bấm giờ của môn này là ${editingCourseLoggedHours}h.` : ''}
-              </p>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Đóng"
-              onClick={() => {
-                setShowCourseForm(false);
-                setEditingCourse(null);
-                setCourseFormError('');
-                setCourseDraft(blankCourse);
-              }}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <div className="study-form-grid">
-            <label>
-              Tên môn học
-              <input
-                autoFocus
-                value={courseDraft.name}
-                onChange={(event) => setCourseDraft({ ...courseDraft, name: event.target.value })}
-                required
-                maxLength={160}
-                placeholder="Ví dụ: Cơ sở dữ liệu"
-              />
-            </label>
-            <label>
-              Mã môn
-              <input
-                value={courseDraft.code}
-                onChange={(event) => setCourseDraft({ ...courseDraft, code: event.target.value })}
-                maxLength={40}
-                placeholder="Ví dụ: IT301"
-              />
-            </label>
-            <label>
-              Học kỳ
-              <input
-                value={courseDraft.semester}
-                onChange={(event) => setCourseDraft({ ...courseDraft, semester: event.target.value })}
-                maxLength={40}
-                placeholder="Ví dụ: HK1 2026-2027"
-              />
-            </label>
-            <label>
-              Giảng viên
-              <input
-                value={courseDraft.instructor}
-                onChange={(event) => setCourseDraft({ ...courseDraft, instructor: event.target.value })}
-                maxLength={120}
-                placeholder="Tên giảng viên"
-              />
-            </label>
-            <label>
-              Số tín chỉ
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.5"
-                value={courseDraft.credits}
-                onChange={(event) => setCourseDraft({ ...courseDraft, credits: event.target.value })}
-              />
-            </label>
-            <label>
-              Tiến độ (%)
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={courseDraft.progress}
-                onChange={(event) => setCourseDraft({ ...courseDraft, progress: event.target.value })}
-              />
-            </label>
-            <label>
-              Điểm hệ 10
-              <input
-                type="number"
-                min="0"
-                max="10"
-                step="0.1"
-                placeholder="Chưa có điểm"
-                value={courseDraft.score10}
-                onChange={(event) => setCourseDraft({ ...courseDraft, score10: event.target.value })}
-              />
-            </label>
-            <label>
-              Điểm chữ
-              <select
-                value={courseDraft.grade}
-                onChange={(event) => setCourseDraft({ ...courseDraft, grade: event.target.value })}
-              >
-                <option value="N/A">Chưa xếp loại (N/A)</option>
-                <option value="A+">A+</option>
-                <option value="A">A</option>
-                <option value="B+">B+</option>
-                <option value="B">B</option>
-                <option value="C+">C+</option>
-                <option value="C">C</option>
-                <option value="D+">D+</option>
-                <option value="D">D</option>
-                <option value="F">F</option>
-              </select>
-            </label>
-            <label>
-              Chuyên cần (%)
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={courseDraft.attendance}
-                onChange={(event) => setCourseDraft({ ...courseDraft, attendance: event.target.value })}
-              />
-            </label>
-            <label>
-              Giờ nền đã nhập
-              <input
-                type="number"
-                min="0"
-                step="0.5"
-                value={courseDraft.studyHours}
-                onChange={(event) => setCourseDraft({ ...courseDraft, studyHours: event.target.value })}
-              />
-            </label>
-            <label>
-              Mục tiêu giờ học
-              <input
-                type="number"
-                min="0"
-                step="0.5"
-                value={courseDraft.aimStudyHours}
-                onChange={(event) => setCourseDraft({ ...courseDraft, aimStudyHours: event.target.value })}
-              />
-            </label>
-            <label>
-              Trạng thái môn
-              <select
-                value={courseDraft.status}
-                onChange={(event) =>
-                  setCourseDraft({ ...courseDraft, status: event.target.value as 'Active' | 'Archived' })
-                }
-              >
-                <option value="Active">Đang học (Active)</option>
-                <option value="Archived">Lưu trữ (Archived)</option>
-              </select>
-            </label>
-            <label>
-              Màu nhãn môn học
-              <input
-                type="color"
-                value={courseDraft.color || '#4f8259'}
-                onChange={(event) => setCourseDraft({ ...courseDraft, color: event.target.value })}
-              />
-            </label>
-          </div>
-          {courseFormError && (
-            <div className="form-error" role="alert">
-              {courseFormError}
-            </div>
-          )}
-          <div className="study-editor-actions">
-            <button className="primary-button" disabled={busy}>
-              {busy ? 'Đang lưu…' : editingCourse ? 'Lưu thay đổi' : 'Thêm môn'}
-            </button>
-            <button
-              className="soft-button"
-              type="button"
-              onClick={() => {
-                setShowCourseForm(false);
-                setEditingCourse(null);
-                setCourseFormError('');
-              }}
-            >
-              Hủy
-            </button>
-          </div>
-        </form>
-      )}
+      {courseEditor && (courseWorkspace ? <CalendarDialog title="Chỉnh sửa môn học" busy={busy} wide
+        onClose={() => { setShowCourseForm(false); setEditingCourse(null); setCourseFormError(''); }}>{courseEditor}</CalendarDialog> : courseEditor)}
 
       {/* Exam Form */}
-      {showExamForm && (
-        <form className="panel study-editor" onSubmit={(event) => void saveExam(event)}>
-          <div className="panel-heading">
-            <div>
-              <h3>{editingExam ? 'Chỉnh sửa kỳ thi' : 'Thêm kỳ thi'}</h3>
-              <p>Theo dõi lịch thi, hình thức, trọng số điểm và tiến độ ôn tập.</p>
+      {showExamsSection && showExamForm && (
+        <CalendarDialog title={editingExam ? 'Chỉnh sửa kỳ thi' : 'Thêm kỳ thi'} busy={busy} wide onClose={() => {
+          setShowExamForm(false);
+          setEditingExam(null);
+          setExamFormError('');
+        }}>
+          <form className="study-editor course-modal-editor" onSubmit={(event) => void saveExam(event)}>
+            <div className="study-form-grid">
+              <label>
+                Tên kỳ thi
+                <input
+                  autoFocus
+                  value={examDraft.title}
+                  onChange={(e) => setExamDraft({ ...examDraft, title: e.target.value })}
+                  required
+                  maxLength={200}
+                  placeholder="Ví dụ: Giữa kỳ Cấu trúc dữ liệu"
+                />
+              </label>
+              {!workspaceId && <label>
+                Môn học
+                <select
+                  value={examDraft.courseId}
+                  onChange={(e) => setExamDraft({ ...examDraft, courseId: e.target.value })}
+                >
+                  <option value="">Chưa gắn môn học</option>
+                  {courseOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.status === 'Completed' ? ' (Hoàn thành)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>}
+              <label>
+                Ngày thi
+                <input
+                  type="date"
+                  value={examDraft.date}
+                  onChange={(e) => setExamDraft({ ...examDraft, date: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Loại kỳ thi
+                <select
+                  value={examDraft.type}
+                  onChange={(e) => setExamDraft({ ...examDraft, type: e.target.value as Exam['type'] })}
+                >
+                  <option value="Quiz">Kiểm tra (Quiz)</option>
+                  <option value="Midterm">Giữa kỳ (Midterm)</option>
+                  <option value="Final">Cuối kỳ (Final)</option>
+                  <option value="Certification">Chứng chỉ (Certification)</option>
+                </select>
+              </label>
+              <label>
+                Trọng số điểm (%)
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={examDraft.weight}
+                  onChange={(e) => setExamDraft({ ...examDraft, weight: e.target.value })}
+                />
+              </label>
+              <label>
+                Tiến độ ôn tập (%)
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={examDraft.prepProgress}
+                  onChange={(e) => setExamDraft({ ...examDraft, prepProgress: e.target.value })}
+                />
+              </label>
             </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Đóng"
-              onClick={() => {
-                setShowExamForm(false);
-                setEditingExam(null);
-                setExamFormError('');
-                setExamDraft(emptyExam());
-              }}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <div className="study-form-grid">
-            <label>
-              Tên kỳ thi
-              <input
-                autoFocus
-                value={examDraft.title}
-                onChange={(e) => setExamDraft({ ...examDraft, title: e.target.value })}
-                required
-                maxLength={200}
-                placeholder="Ví dụ: Giữa kỳ Cấu trúc dữ liệu"
-              />
-            </label>
-            <label>
-              Môn học
-              <select
-                value={examDraft.courseId}
-                onChange={(e) => setExamDraft({ ...examDraft, courseId: e.target.value })}
+            {examFormError && (
+              <div className="form-error" role="alert">
+                {examFormError}
+              </div>
+            )}
+            <div className="study-editor-actions">
+              <button className="primary-button" disabled={busy}>
+                {busy ? 'Đang lưu…' : editingExam ? 'Lưu kỳ thi' : 'Thêm kỳ thi'}
+              </button>
+              <button
+                className="soft-button"
+                type="button"
+                onClick={() => {
+                  setShowExamForm(false);
+                  setEditingExam(null);
+                  setExamFormError('');
+                }}
               >
-                <option value="">Chưa gắn môn học</option>
-                {courseOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                    {c.status === 'Archived' ? ' (Đã lưu trữ)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Ngày thi
-              <input
-                type="date"
-                value={examDraft.date}
-                onChange={(e) => setExamDraft({ ...examDraft, date: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Loại kỳ thi
-              <select
-                value={examDraft.type}
-                onChange={(e) => setExamDraft({ ...examDraft, type: e.target.value as Exam['type'] })}
-              >
-                <option value="Quiz">Kiểm tra (Quiz)</option>
-                <option value="Midterm">Giữa kỳ (Midterm)</option>
-                <option value="Final">Cuối kỳ (Final)</option>
-                <option value="Certification">Chứng chỉ (Certification)</option>
-              </select>
-            </label>
-            <label>
-              Trọng số điểm (%)
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={examDraft.weight}
-                onChange={(e) => setExamDraft({ ...examDraft, weight: e.target.value })}
-              />
-            </label>
-            <label>
-              Tiến độ ôn tập (%)
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={examDraft.prepProgress}
-                onChange={(e) => setExamDraft({ ...examDraft, prepProgress: e.target.value })}
-              />
-            </label>
-          </div>
-          {examFormError && (
-            <div className="form-error" role="alert">
-              {examFormError}
+                Hủy
+              </button>
             </div>
-          )}
-          <div className="study-editor-actions">
-            <button className="primary-button" disabled={busy}>
-              {busy ? 'Đang lưu…' : editingExam ? 'Lưu kỳ thi' : 'Thêm kỳ thi'}
-            </button>
-            <button
-              className="soft-button"
-              type="button"
-              onClick={() => {
-                setShowExamForm(false);
-                setEditingExam(null);
-                setExamFormError('');
-              }}
-            >
-              Hủy
-            </button>
-          </div>
-        </form>
+          </form>
+        </CalendarDialog>
       )}
 
       {/* Note Form */}
-      {showNoteForm && (
-        <form className="panel study-editor" onSubmit={(event) => void saveNote(event)}>
-          <div className="panel-heading">
-            <div>
-              <h3>{editingNote ? 'Chỉnh sửa ghi chú' : 'Thêm ghi chú học tập'}</h3>
-              <p>Lưu kiến thức trọng tâm, tóm tắt bài giảng và gắn thẻ (tối đa 30 tag, mỗi tag 40 ký tự).</p>
+      {showNotesSection && showNoteForm && (
+        <CalendarDialog title={editingNote ? 'Chỉnh sửa ghi chú' : 'Thêm ghi chú'} busy={busy} wide onClose={() => {
+          setShowNoteForm(false);
+          setEditingNote(null);
+          setNoteFormError('');
+        }}>
+          <form className="study-editor course-modal-editor" onSubmit={(event) => void saveNote(event)}>
+            <div className="study-form-grid">
+              <label>
+                Tiêu đề ghi chú
+                <input
+                  autoFocus
+                  value={noteDraft.title}
+                  onChange={(e) => setNoteDraft({ ...noteDraft, title: e.target.value })}
+                  required
+                  maxLength={200}
+                  placeholder="Ví dụ: Tóm tắt cây nhị phân & Heap"
+                />
+              </label>
+              {!workspaceId && <label>
+                Môn học
+                <select
+                  value={noteDraft.courseId}
+                  onChange={(e) => setNoteDraft({ ...noteDraft, courseId: e.target.value })}
+                >
+                  <option value="">Ghi chú chung</option>
+                  {courseOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.status === 'Completed' ? ' (Hoàn thành)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>}
+              <label>
+                Ngày ghi chú
+                <input
+                  type="date"
+                  value={noteDraft.date}
+                  onChange={(e) => setNoteDraft({ ...noteDraft, date: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Tags (ngăn cách bằng dấu phẩy)
+                <input
+                  value={noteDraft.tagsText}
+                  onChange={(e) => setNoteDraft({ ...noteDraft, tagsText: e.target.value })}
+                  placeholder="Ví dụ: DSA, Ôn thi, Chương 3"
+                />
+              </label>
+              <label className="note-content-field">
+                Nội dung ghi chú ({noteDraft.content.length}/50000)
+                <textarea
+                  rows={5}
+                  value={noteDraft.content}
+                  onChange={(e) => setNoteDraft({ ...noteDraft, content: e.target.value })}
+                  maxLength={50000}
+                  placeholder="Nhập nội dung chi tiết bài học, công thức hoặc danh sách ý chính…"
+                />
+              </label>
             </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Đóng"
-              onClick={() => {
-                setShowNoteForm(false);
-                setEditingNote(null);
-                setNoteFormError('');
-                setNoteDraft(emptyNote());
-              }}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <div className="study-form-grid">
-            <label>
-              Tiêu đề ghi chú
-              <input
-                autoFocus
-                value={noteDraft.title}
-                onChange={(e) => setNoteDraft({ ...noteDraft, title: e.target.value })}
-                required
-                maxLength={200}
-                placeholder="Ví dụ: Tóm tắt cây nhị phân & Heap"
-              />
-            </label>
-            <label>
-              Môn học
-              <select
-                value={noteDraft.courseId}
-                onChange={(e) => setNoteDraft({ ...noteDraft, courseId: e.target.value })}
+            {noteFormError && (
+              <div className="form-error" role="alert">
+                {noteFormError}
+              </div>
+            )}
+            <div className="study-editor-actions">
+              <button className="primary-button" disabled={busy}>
+                {busy ? 'Đang lưu…' : editingNote ? 'Lưu ghi chú' : 'Thêm ghi chú'}
+              </button>
+              <button
+                className="soft-button"
+                type="button"
+                onClick={() => {
+                  setShowNoteForm(false);
+                  setEditingNote(null);
+                  setNoteFormError('');
+                }}
               >
-                <option value="">Ghi chú chung</option>
-                {courseOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                    {c.status === 'Archived' ? ' (Đã lưu trữ)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Ngày ghi chú
-              <input
-                type="date"
-                value={noteDraft.date}
-                onChange={(e) => setNoteDraft({ ...noteDraft, date: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Tags (ngăn cách bằng dấu phẩy)
-              <input
-                value={noteDraft.tagsText}
-                onChange={(e) => setNoteDraft({ ...noteDraft, tagsText: e.target.value })}
-                placeholder="Ví dụ: DSA, Ôn thi, Chương 3"
-              />
-            </label>
-            <label className="note-content-field">
-              Nội dung ghi chú ({noteDraft.content.length}/50000)
-              <textarea
-                rows={5}
-                value={noteDraft.content}
-                onChange={(e) => setNoteDraft({ ...noteDraft, content: e.target.value })}
-                maxLength={50000}
-                placeholder="Nhập nội dung chi tiết bài học, công thức hoặc danh sách ý chính…"
-              />
-            </label>
-          </div>
-          {noteFormError && (
-            <div className="form-error" role="alert">
-              {noteFormError}
+                Hủy
+              </button>
             </div>
-          )}
-          <div className="study-editor-actions">
-            <button className="primary-button" disabled={busy}>
-              {busy ? 'Đang lưu…' : editingNote ? 'Lưu ghi chú' : 'Thêm ghi chú'}
-            </button>
-            <button
-              className="soft-button"
-              type="button"
-              onClick={() => {
-                setShowNoteForm(false);
-                setEditingNote(null);
-                setNoteFormError('');
-              }}
-            >
-              Hủy
-            </button>
-          </div>
-        </form>
+          </form>
+        </CalendarDialog>
       )}
 
-      {/* Personal Schedule Form */}
-      {showScheduleForm && (
-        <form className="panel study-editor" onSubmit={(event) => void saveScheduleItem(event)}>
-          <div className="panel-heading">
-            <div>
-              <h3>{editingSchedule ? 'Chỉnh sửa lịch cá nhân' : 'Thêm sự kiện lịch cá nhân'}</h3>
-              <p>Lên lịch tự học, họp nhóm hoặc việc cá nhân theo ngày cụ thể (tự động kiểm tra trùng giờ).</p>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Đóng"
-              onClick={() => {
-                setShowScheduleForm(false);
-                setEditingSchedule(null);
-                setScheduleFormError('');
-                setScheduleDraft(emptySchedule());
-              }}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <div className="study-form-grid">
-            <label>
-              Tên sự kiện
-              <input
-                autoFocus
-                value={scheduleDraft.title}
-                onChange={(e) => setScheduleDraft({ ...scheduleDraft, title: e.target.value })}
-                required
-                maxLength={200}
-                placeholder="Ví dụ: Họp nhóm đồ án AI"
-              />
+      {tab === 'time' && showLogForm && <CalendarDialog title="Ghi thời gian học" busy={busy} onClose={() => setShowLogForm(false)}>
+        <form className="project-task-editor" onSubmit={(event) => void saveLog(event)}>
+          <label className="planning-field">Môn học
+            <select value={logDraft.courseId} onChange={(event) => setLogDraft({ ...logDraft, courseId: event.target.value })}>
+              <option value="">Tự học chung</option>
+              {courseOptions.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}
+            </select>
+          </label>
+          <div className="planning-form">
+            <label className="planning-field">Ngày học
+              <input type="date" required value={logDraft.date} onChange={(event) => setLogDraft({ ...logDraft, date: event.target.value })} />
             </label>
-            <label>
-              Ngày
-              <input
-                type="date"
-                value={scheduleDraft.date}
-                onChange={(e) => setScheduleDraft({ ...scheduleDraft, date: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Khung giờ (HH:MM - HH:MM)
-              <input
-                value={scheduleDraft.time}
-                onChange={(e) => setScheduleDraft({ ...scheduleDraft, time: e.target.value })}
-                required
-                maxLength={32}
-                placeholder="Ví dụ: 14:00 - 16:00"
-              />
-            </label>
-            <label>
-              Màu sự kiện
-              <input
-                type="color"
-                value={scheduleDraft.color || '#4f8259'}
-                onChange={(e) => setScheduleDraft({ ...scheduleDraft, color: e.target.value })}
-              />
+            <label className="planning-field">Số phút đã học
+              <input type="number" required min={1} max={1440} step={1} value={logDraft.minutes}
+                onChange={(event) => setLogDraft({ ...logDraft, minutes: event.target.value })} />
             </label>
           </div>
-          {draftScheduleConflict && (
-            <div className="schedule-conflict-banner" role="alert">
-              <AlertTriangle size={15} />
-              <span>
-                Cảnh báo trùng lịch: {draftScheduleConflict}. Hệ thống vẫn cho phép lưu nếu bạn muốn xếp song song, hoặc
-                bạn có thể đổi sang khung giờ khác.
-              </span>
-            </div>
-          )}
-          {scheduleFormError && (
-            <div className="form-error" role="alert">
-              {scheduleFormError}
-            </div>
-          )}
-          <div className="study-editor-actions">
-            <button className="primary-button" disabled={busy}>
-              {busy ? 'Đang lưu…' : editingSchedule ? 'Lưu sự kiện' : 'Thêm vào lịch'}
-            </button>
-            <button
-              className="soft-button"
-              type="button"
-              onClick={() => {
-                setShowScheduleForm(false);
-                setEditingSchedule(null);
-                setScheduleFormError('');
-              }}
-            >
-              Hủy
-            </button>
+          <label className="planning-field">Ghi chú
+            <input maxLength={500} value={logDraft.note} onChange={(event) => setLogDraft({ ...logDraft, note: event.target.value })} />
+          </label>
+          {logError && <p className="form-error" role="alert">{logError}</p>}
+          <div className="planning-actions">
+            <button className="primary-button" disabled={busy}>Lưu thời gian</button>
+            <button type="button" className="soft-button" disabled={busy} onClick={() => setShowLogForm(false)}>Hủy</button>
           </div>
         </form>
-      )}
-
-      {/* Study Stopwatch */}
-      {showLogForm && (
-        <section className="panel study-editor timer-editor">
-          <div className="panel-heading">
-            <div>
-              <h3>Bấm giờ tự học</h3>
-              <p>Bắt đầu bộ đếm khi bạn ngồi vào học; dừng lại để lưu vào heatmap.</p>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Đóng"
-              onClick={() => setShowLogForm(false)}
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <div className="study-form-grid timer-meta-grid">
-            <label>
-              Môn học
-              <select
-                disabled={timerActive}
-                value={timer.courseId}
-                onChange={(event) => setTimer((current) => ({ ...current, courseId: event.target.value }))}
-              >
-                <option value="">Tự học chung</option>
-                {courseOptions.map((course) => (
-                  <option key={course.id} value={course.id}>
-                    {course.name}
-                    {course.status === 'Archived' ? ' (Đã lưu trữ)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Ghi chú
-              <input
-                disabled={timerActive}
-                value={timer.note}
-                onChange={(event) => setTimer((current) => ({ ...current, note: event.target.value }))}
-                maxLength={500}
-                placeholder="Nội dung sẽ học"
-              />
-            </label>
-          </div>
-          <div className="study-stopwatch">
-            <strong aria-live="off">{timerDisplay}</strong>
-            <span>{timer.date ? `Phiên học · ${dateLabel(timer.date)}` : 'Sẵn sàng bắt đầu phiên học'}</span>
-            <div className="stopwatch-controls">
-              {timer.startedAt === null ? (
-                <button className="primary-button" type="button" onClick={startTimer} disabled={busy}>
-                  <Play size={16} />
-                  {timerActive ? 'Tiếp tục' : 'Bắt đầu bấm giờ'}
-                </button>
-              ) : (
-                <button className="soft-button" type="button" onClick={pauseTimer} disabled={busy}>
-                  <Pause size={16} />
-                  Tạm dừng
-                </button>
-              )}
-              {timerActive && (
-                <>
-                  <button
-                    className="primary-button timer-save-button"
-                    type="button"
-                    onClick={() => void saveLog()}
-                    disabled={busy}
-                  >
-                    <Check size={16} />
-                    {busy ? 'Đang lưu…' : 'Kết thúc & lưu'}
-                  </button>
-                  <button
-                    className="icon-button danger-icon"
-                    type="button"
-                    title="Bỏ phiên"
-                    aria-label="Bỏ phiên bấm giờ"
-                    onClick={discardTimer}
-                    disabled={busy}
-                  >
-                    <RotateCcw size={16} />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-          <p className="timer-hint">
-            Thời gian được lưu theo phút gần nhất. Giờ mỗi môn được tính bằng max(giờ nền đã nhập, tổng giờ log của môn).
-          </p>
-        </section>
-      )}
+      </CalendarDialog>}
 
       {/* Courses Panel */}
       {showCoursesSection && (
@@ -2531,7 +2069,6 @@ export default function StudyPage({
           <div className="panel-heading">
             <div>
               <h3>Môn học của bạn</h3>
-              <p>Chọn một môn để xem lịch học, điểm số, chuyên cần, giờ nền/giờ log và thao tác chỉnh sửa.</p>
             </div>
             <div className="panel-heading-tools">
               {semesters.length > 0 && (
@@ -2556,8 +2093,8 @@ export default function StudyPage({
                 onChange={(e) => setCourseStatusFilter(e.target.value)}
               >
                 <option value="all">Mọi trạng thái</option>
-                <option value="Active">Đang học (Active)</option>
-                <option value="Archived">Lưu trữ (Archived)</option>
+                <option value="Active">{courseStatusLabels.Active}</option>
+                <option value="Completed">{courseStatusLabels.Completed}</option>
               </select>
               {isCourseScoped && (
                 <button
@@ -2586,154 +2123,31 @@ export default function StudyPage({
             </div>
           ) : filteredCourses.length ? (
             <div className="course-list">
-              {filteredCourses.map((course, i) => {
-                const courseSessions = sessions
-                  .filter((session) => session.courseId === course.id)
-                  .sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime));
-                const isExpanded = expandedCourse === course.id;
-                const loggedMinutes = logs
-                  .filter((l) => l.courseId === course.id)
-                  .reduce((s, l) => s + l.durationMinutes, 0);
-                const loggedHours = Number((loggedMinutes / 60).toFixed(1));
-                const baseHours = Number(Number(course.studyHours ?? 0).toFixed(1));
-                const effectiveHours = Number(Math.max(baseHours, loggedHours).toFixed(1));
-
-                return (
-                  <article
-                    id={`course-${course.id}`}
-                    className={`course-card ${isExpanded ? 'course-card-open' : ''}`}
-                    key={course.id}
-                  >
-                    <button
-                      className="course-card-summary"
-                      type="button"
-                      aria-expanded={isExpanded}
-                      onClick={() => setExpandedCourse(isExpanded ? null : course.id)}
-                    >
-                      <div
-                        className={`course-badge course-${i % 4}`}
-                        style={course.color ? { backgroundColor: `${course.color}22`, color: course.color } : undefined}
-                      >
-                        <BookOpen size={18} />
+              {filteredCourses.map((course, index) => {
+                const courseAssignments = allAssignments.filter((assignment) => assignment.courseId === course.id);
+                const completed = courseAssignments.filter((assignment) => assignment.status === 'Completed').length;
+                const grade = courseLetterGrade(course.score10);
+                return <article className="course-card" key={course.id}>
+                  <a className="course-card-summary course-workspace-link" href={`/study?tab=assignments&course=${encodeURIComponent(course.id)}`}
+                    onClick={(event) => {
+                      if (!onSelectStudyTarget || event.button !== 0 || event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return;
+                      event.preventDefault();
+                      openCourse(course.id);
+                    }}>
+                    <div className={`course-badge course-${index % 4}`}
+                      style={course.color ? { backgroundColor: `${course.color}22`, color: course.color } : undefined}><BookOpen size={18} /></div>
+                    <div className="course-card-title">
+                      <div className="course-title-row">
+                        <strong>{course.name}</strong>
+                        {course.status === 'Completed' && <span className="course-completed-pill">Hoàn thành</span>}
+                        {grade && <span className="grade-pill">{grade}</span>}
                       </div>
-                      <div className="course-card-title">
-                        <div className="course-title-row">
-                          <strong>{course.name}</strong>
-                          {course.status === 'Archived' && <span className="course-archived-pill">Lưu trữ</span>}
-                          {course.grade && course.grade !== 'N/A' && (
-                            <span className="grade-pill">{course.grade}</span>
-                          )}
-                        </div>
-                        <span>
-                          {[course.code, course.semester, course.instructor, course.credits ? `${course.credits} TC` : '']
-                            .filter(Boolean)
-                            .join(' · ') || 'Chưa có mã môn hoặc giảng viên'}
-                        </span>
-                        <small>
-                          {courseSessions.length ? `${courseSessions.length} buổi học` : 'Chưa có lịch học'} · Tiến độ{' '}
-                          {course.progress ?? 0}% · {effectiveHours}/{course.aimStudyHours ?? 0}h tự học
-                        </small>
-                      </div>
-                      <ChevronDown className={`course-expand-icon ${isExpanded ? 'expanded' : ''}`} size={17} />
-                    </button>
-                    {isExpanded && (
-                      <div className="course-card-details">
-                        <div className="course-metrics-row">
-                          <span>
-                            Tín chỉ: <strong>{course.credits ?? 0}</strong>
-                          </span>
-                          <span>
-                            Điểm hệ 10: <strong>{course.score10 ?? '—'}</strong>
-                          </span>
-                          <span>
-                            Điểm chữ: <strong>{course.grade || 'N/A'}</strong>
-                          </span>
-                          <span>
-                            Chuyên cần: <strong>{course.attendance ?? 0}%</strong>
-                          </span>
-                          <span>
-                            Giờ nền: <strong>{baseHours}h</strong> · Giờ log: <strong>{loggedHours}h</strong> → Tính tổng:{' '}
-                            <strong>
-                              {effectiveHours} / {course.aimStudyHours ?? 0}h
-                            </strong>
-                          </span>
-                          <span>
-                            Trạng thái: <strong>{course.status === 'Archived' ? 'Lưu trữ' : 'Đang học'}</strong>
-                          </span>
-                        </div>
-                        <div className="course-card-actions course-detail-actions">
-                          <button className="soft-button" type="button" onClick={() => startEditCourse(course)}>
-                            <Pencil size={14} /> Sửa môn
-                          </button>
-                          <button
-                            className="soft-button danger-course-button"
-                            type="button"
-                            disabled={itemBusyId === course.id}
-                            onClick={() => void deleteCourse(course)}
-                          >
-                            <Trash2 size={14} /> Xóa môn
-                          </button>
-                        </div>
-                        <div className="course-session-list">
-                          {courseSessions.length ? (
-                            courseSessions.map((session) => (
-                              <div className="course-session-row" key={session.id}>
-                                <div className="session-time">
-                                  <strong>{weekdayNames[session.weekday - 1]}</strong>
-                                  <span>
-                                    {session.startTime}–{session.endTime} · Tiết {session.periodStart}
-                                    {session.periodEnd !== session.periodStart ? `–${session.periodEnd}` : ''}
-                                  </span>
-                                </div>
-                                <span className="session-location">
-                                  <MapPin size={13} />
-                                  {[session.location, session.room].filter(Boolean).join(' · ') ||
-                                    'Chưa đặt địa điểm/phòng'}
-                                </span>
-                                <div className="course-card-actions">
-                                  <button
-                                    className="icon-button"
-                                    type="button"
-                                    title="Sửa lịch học"
-                                    aria-label="Sửa lịch học"
-                                    onClick={() => beginEditSession(session)}
-                                  >
-                                    <Pencil size={14} />
-                                  </button>
-                                  <button
-                                    className="icon-button danger-icon"
-                                    type="button"
-                                    disabled={itemBusyId === session.id}
-                                    title="Xóa lịch học"
-                                    aria-label="Xóa lịch học"
-                                    onClick={() => void deleteSession(session)}
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="course-no-sessions">Chưa có lịch lên lớp.</div>
-                          )}
-                        </div>
-                        <button
-                          className="text-button add-session-button"
-                          type="button"
-                          onClick={() => {
-                            setSessionCourse(course.id);
-                            setEditingSession(null);
-                            setSessionFormError('');
-                            setSessionDraft(blankSession);
-                          }}
-                        >
-                          <Plus size={14} /> Thêm buổi học
-                        </button>
-                        {sessionForm(course.id)}
-                      </div>
-                    )}
-                  </article>
-                );
+                      <span>{[course.code, course.semester, course.instructor, course.credits ? `${course.credits} tín chỉ` : ''].filter(Boolean).join(' · ')}</span>
+                      <small>{completed}/{courseAssignments.length} bài tập hoàn thành</small>
+                    </div>
+                    <ChevronRight size={17} aria-hidden="true" />
+                  </a>
+                </article>;
               })}
             </div>
           ) : (
@@ -2743,7 +2157,7 @@ export default function StudyPage({
               <span>
                 {courses.length
                   ? 'Thử chọn Tất cả học kỳ hoặc xóa bộ lọc trạng thái.'
-                  : 'Thêm môn học đầu tiên để bắt đầu tạo thời khóa biểu.'}
+                  : 'Thêm môn học đầu tiên để bắt đầu tạo lịch học.'}
               </span>
               {courses.length > 0 && isCourseScoped && (
                 <button
@@ -2762,339 +2176,14 @@ export default function StudyPage({
         </section>
       )}
 
-      {/* Weekly Timetable & Personal Schedule */}
-      {showScheduleSection && (
-        <>
-          <section className="panel timetable-panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Thời khóa biểu tuần (Lịch học cố định)</h3>
-                <p>
-                  {sessions.length
-                    ? `${sessions.length} buổi học · Thời gian, tiết, địa điểm và phòng học.`
-                    : 'Thời gian, tiết, địa điểm và phòng học.'}
-                </p>
-              </div>
-              {sessions.length > 0 && (
-                <button
-                  className="soft-button timetable-expand-button"
-                  type="button"
-                  aria-expanded={showTimetable}
-                  onClick={() => setShowTimetable((value) => !value)}
-                >
-                  <ChevronDown className={showTimetable ? 'expanded' : ''} size={15} />
-                  {showTimetable ? 'Thu gọn' : 'Xem đầy đủ'}
-                </button>
-              )}
-            </div>
-            {sessions.length ? (
-              <>
-                <div className="timetable-scroll-hint" aria-hidden="true">
-                  ↔ Vuốt ngang để xem toàn bộ các ngày trong tuần
-                </div>
-                {!showTimetable && (
-                  <div className="compact-week-scroll">
-                    <div className="compact-week-summary">
-                      {weekdayNames.map((day, index) => {
-                        const daySessions = sessions
-                          .filter((session) => session.weekday === index + 1)
-                          .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                        const firstSession = daySessions[0];
-                        const course = firstSession ? courses.find((item) => item.id === firstSession.courseId) : null;
-                        return (
-                          <div className="compact-week-day" key={day}>
-                            <strong>{weekdayShortNames[index]}</strong>
-                            {firstSession ? (
-                              <>
-                                <div className="compact-week-entry">
-                                  <span title={course?.name ?? 'Môn học'}>{course?.name ?? 'Môn học'}</span>
-                                  <small>
-                                    {firstSession.startTime}–{firstSession.endTime}
-                                  </small>
-                                </div>
-                                {daySessions.length > 1 && (
-                                  <span className="compact-week-count">+{daySessions.length - 1} buổi</span>
-                                )}
-                              </>
-                            ) : (
-                              <small className="compact-week-empty">Trống</small>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {showTimetable && (
-                  <div className="timetable-scroll">
-                    <div className="weekly-timetable">
-                      <div className="timetable-corner">Giờ</div>
-                      {weekdayNames.map((day) => (
-                        <div className="timetable-day-heading" key={day}>
-                          {day}
-                        </div>
-                      ))}
-                      <div className="timetable-times">
-                        {Array.from({ length: 16 }, (_, i) => (
-                          <span key={i}>{`${String(i + 6).padStart(2, '0')}:00`}</span>
-                        ))}
-                      </div>
-                      {weekdayNames.map((day, index) => (
-                        <div className="timetable-day" key={day}>
-                          {sessions
-                            .filter((session) => session.weekday === index + 1)
-                            .map((session) => {
-                              // Clamp position inside the 768px grid so sessions before 06:00 or after 21:00 remain visible & accessible
-                              const rawTop = (minutesOf(session.startTime) - 360) * 0.8;
-                              const top = Math.min(720, Math.max(0, rawTop));
-                              const rawHeight = (minutesOf(session.endTime) - minutesOf(session.startTime)) * 0.8;
-                              const height = Math.min(768 - top, Math.max(28, rawHeight));
-                              const course = courses.find((item) => item.id === session.courseId);
-                              return (
-                                <div
-                                  className={`timetable-session timetable-tone-${Math.max(0, courses.findIndex((item) => item.id === session.courseId)) % 4}`}
-                                  key={session.id}
-                                  style={{ top, height }}
-                                  title={`${course?.name ?? 'Môn học'} · ${session.startTime}–${session.endTime}`}
-                                >
-                                  <strong>{course?.name ?? 'Môn học'}</strong>
-                                  <span>
-                                    {session.startTime}–{session.endTime}
-                                  </span>
-                                  <small>
-                                    Tiết {session.periodStart}–{session.periodEnd}
-                                  </small>
-                                  {(session.room || session.location) && (
-                                    <small>{[session.room, session.location].filter(Boolean).join(' · ')}</small>
-                                  )}
-                                </div>
-                              );
-                            })}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="study-empty compact">
-                <CalendarDays size={22} />
-                <span>Thêm lịch học vào môn học để xem thời khóa biểu.</span>
-              </div>
-            )}
-          </section>
-
-          {/* Personal Schedule Panel (/api/study/schedule) */}
-          <section className="panel personal-schedule-panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Lịch cá nhân & Sự kiện theo ngày</h3>
-                <p>Phân biệt với thời khóa biểu cố định: quản lý kế hoạch tự học, họp nhóm và cảnh báo trùng giờ.</p>
-              </div>
-              <div className="panel-heading-tools">
-                <div className="segmented-control" role="group" aria-label="Chế độ xem lịch cá nhân">
-                  <button
-                    type="button"
-                    className={scheduleViewMode === 'week' ? 'active' : ''}
-                    onClick={() => setScheduleViewMode('week')}
-                  >
-                    Theo tuần
-                  </button>
-                  <button
-                    type="button"
-                    className={scheduleViewMode === 'day' ? 'active' : ''}
-                    onClick={() => setScheduleViewMode('day')}
-                  >
-                    Theo ngày
-                  </button>
-                </div>
-                {scheduleViewMode === 'day' && (
-                  <input
-                    type="date"
-                    aria-label="Chọn ngày xem lịch"
-                    className="compact-date-input"
-                    value={selectedScheduleDate}
-                    onChange={(e) => setSelectedScheduleDate(e.target.value)}
-                  />
-                )}
-                <button
-                  type="button"
-                  className="soft-button compact-btn"
-                  onClick={() => {
-                    setEditingSchedule(null);
-                    setScheduleFormError('');
-                    setScheduleDraft({ ...emptySchedule(), date: selectedScheduleDate || todayString() });
-                    setShowScheduleForm(true);
-                  }}
-                >
-                  <Plus size={14} /> Thêm sự kiện
-                </button>
-              </div>
-            </div>
-
-            {scheduleViewMode === 'week' ? (
-              <div className="schedule-week-grid">
-                {weekDays.map((day) => {
-                  const dayEvents = scheduleItems
-                    .filter((item) => item.date === day.iso)
-                    .sort((a, b) => a.time.localeCompare(b.time));
-                  const daySessions = sessions
-                    .filter((s) => s.weekday === day.weekday)
-                    .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                  return (
-                    <div className="schedule-day-card" key={day.iso}>
-                      <div className="schedule-day-head">
-                        <strong>{day.name}</strong>
-                        <small>{dateLabel(day.iso)}</small>
-                      </div>
-                      <div className="schedule-day-body">
-                        {daySessions.map((sess) => {
-                          const cName = courses.find((c) => c.id === sess.courseId)?.name ?? 'Môn học';
-                          return (
-                            <div className="schedule-entry class-entry" key={`class-${sess.id}`}>
-                              <span className="entry-badge">Lớp học</span>
-                              <strong>{cName}</strong>
-                              <small>
-                                {sess.startTime}–{sess.endTime} {sess.room ? `· ${sess.room}` : ''}
-                              </small>
-                            </div>
-                          );
-                        })}
-                        {dayEvents.map((ev) => {
-                          const conflict = detectScheduleConflict(ev.date, ev.time, ev.id);
-                          return (
-                            <div
-                              className={`schedule-entry personal-entry ${conflict ? 'conflict-entry' : ''}`}
-                              key={ev.id}
-                              style={ev.color ? { borderLeftColor: ev.color } : undefined}
-                            >
-                              <div className="schedule-entry-top">
-                                <span className="entry-badge personal">Cá nhân</span>
-                                {conflict && (
-                                  <span className="conflict-pill" title={conflict}>
-                                    <AlertTriangle size={11} /> Trùng giờ
-                                  </span>
-                                )}
-                                <div className="schedule-entry-actions">
-                                  <button
-                                    type="button"
-                                    className="icon-button"
-                                    aria-label={`Sửa sự kiện ${ev.title}`}
-                                    onClick={() => startEditScheduleItem(ev)}
-                                  >
-                                    <Pencil size={12} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="icon-button danger-icon"
-                                    disabled={itemBusyId === ev.id}
-                                    aria-label={`Xóa sự kiện ${ev.title}`}
-                                    onClick={() => void deleteScheduleItem(ev)}
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                </div>
-                              </div>
-                              <strong>{ev.title}</strong>
-                              <small>{ev.time}</small>
-                            </div>
-                          );
-                        })}
-                        {!daySessions.length && !dayEvents.length && (
-                          <span className="schedule-empty-day">Không có lịch</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="schedule-day-detail">
-                {(() => {
-                  const wday = isoWeekday(selectedScheduleDate);
-                  const daySessions = sessions
-                    .filter((s) => s.weekday === wday)
-                    .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                  const dayEvents = scheduleItems
-                    .filter((item) => item.date === selectedScheduleDate)
-                    .sort((a, b) => a.time.localeCompare(b.time));
-                  if (!daySessions.length && !dayEvents.length) {
-                    return (
-                      <div className="study-empty compact">
-                        <Calendar size={20} />
-                        <span>Chưa có buổi học hoặc lịch cá nhân nào trong ngày {dateLabel(selectedScheduleDate)}.</span>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div className="task-list">
-                      {daySessions.map((sess) => {
-                        const cName = courses.find((c) => c.id === sess.courseId)?.name ?? 'Môn học';
-                        return (
-                          <div className="project-task" key={`day-sess-${sess.id}`}>
-                            <span className="entry-badge">Lớp học cố định</span>
-                            <div className="task-copy">
-                              <strong>{cName}</strong>
-                              <span>
-                                {sess.startTime}–{sess.endTime} · Tiết {sess.periodStart}–{sess.periodEnd}{' '}
-                                {sess.room ? `· Phòng ${sess.room}` : ''}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {dayEvents.map((ev) => {
-                        const conflict = detectScheduleConflict(ev.date, ev.time, ev.id);
-                        return (
-                          <div className="project-task" key={ev.id}>
-                            <span
-                              className="entry-badge personal"
-                              style={ev.color ? { backgroundColor: `${ev.color}22`, color: ev.color } : undefined}
-                            >
-                              Lịch cá nhân
-                            </span>
-                            <div className="task-copy">
-                              <strong>{ev.title}</strong>
-                              <span>
-                                {ev.time} · {dateLabel(ev.date)}
-                                {conflict ? ` · ⚠️ ${conflict}` : ''}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              className="icon-button"
-                              aria-label={`Sửa sự kiện ${ev.title}`}
-                              onClick={() => startEditScheduleItem(ev)}
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              type="button"
-                              className="icon-button task-delete"
-                              disabled={itemBusyId === ev.id}
-                              aria-label={`Xóa sự kiện ${ev.title}`}
-                              onClick={() => void deleteScheduleItem(ev)}
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </section>
-
-          {/* Study Heatmap Panel */}
+      {tab === 'time' && (
           <section className="panel heatmap-panel">
             <div className="panel-heading">
               <div>
                 <h3>Thời gian tự học trong tuần</h3>
                 <p>
                   {Math.floor(currentWeekMinutes / 60)} giờ {currentWeekMinutes % 60} phút đã ghi nhận trong tuần · Tổng
-                  tích lũy {unifiedStudy.totalHours} giờ
+                  tích lũy {totalStudyHours} giờ
                   {isCourseScoped ? ' (theo phạm vi lọc môn)' : ''}
                 </p>
               </div>
@@ -3148,7 +2237,7 @@ export default function StudyPage({
               <span>Nhiều</span>
             </div>
             {showLogForm === false && (
-              <button className="text-button log-entry-link" type="button" onClick={() => setShowLogForm(true)}>
+              <button className="text-button log-entry-link" type="button" onClick={startStudyLog}>
                 <Plus size={14} /> Ghi thời gian học
               </button>
             )}
@@ -3181,20 +2270,20 @@ export default function StudyPage({
               </div>
             )}
           </section>
-        </>
       )}
 
       {/* Assignments Panel */}
       {showAssignmentsSection && (
-        <section className="panel assignment-panel">
+        <section className={`panel assignment-panel${workspaceId ? ' course-assignments-panel' : ''}`}>
           <div className="panel-heading">
             <div>
               <h3>Bài tập</h3>
-              <p>Quản lý hạn nộp và theo dõi tiến độ hoàn thành.</p>
             </div>
             <div className="panel-heading-tools">
               {assignments.length > 0 && (
-                <>
+                <details className={workspaceId ? 'project-task-options' : undefined} open={!workspaceId}>
+                  <summary hidden={!workspaceId}>Bộ lọc và sắp xếp</summary>
+                  <div className="panel-heading-tools">
                   <select
                     aria-label="Lọc trạng thái bài tập"
                     className="compact-select"
@@ -3202,6 +2291,7 @@ export default function StudyPage({
                     onChange={(e) => setAssignmentStatusFilter(e.target.value)}
                   >
                     <option value="all">Mọi trạng thái</option>
+                    <option value="soon">Sắp đến hạn (7 ngày)</option>
                     <option value="pending">Chưa hoàn thành</option>
                     <option value="Not Started">Chưa bắt đầu</option>
                     <option value="In Progress">Đang làm</option>
@@ -3219,7 +2309,7 @@ export default function StudyPage({
                     <option value="Medium">Vừa</option>
                     <option value="Low">Thấp</option>
                   </select>
-                  {courses.length > 0 && (
+                  {!workspaceId && courses.length > 0 && (
                     <select
                       aria-label="Lọc theo môn bài tập"
                       className="compact-select"
@@ -3259,13 +2349,14 @@ export default function StudyPage({
                       Xóa bộ lọc
                     </button>
                   )}
-                </>
+                  </div>
+                </details>
               )}
-              <span className="count-pill">{assignments.filter((item) => item.status !== 'Completed').length} chờ</span>
+              {workspaceId && <button type="button" className="primary-button" onClick={startNewAssignment}><Plus size={16} /> Thêm bài tập</button>}
             </div>
           </div>
           {filteredAssignments.length ? (
-            <div className="task-list">
+            <div className={`task-list${workspaceId ? ' project-detail-tasks' : ''}`}>
               {filteredAssignments.map((item) => (
                 <AssignmentRow
                   key={item.id}
@@ -3273,6 +2364,14 @@ export default function StudyPage({
                   courses={courses}
                   busy={itemBusyId === item.id}
                   highlighted={highlightedId === item.id}
+                  scoped={Boolean(workspaceId)}
+                  dependencyNames={(item.dependencies ?? []).map((id) => assignmentNames.get(id)).filter((name): name is string => typeof name === 'string')}
+                  trackedSeconds={courseTimer?.taskSeconds?.[item.id]}
+                  timing={courseTimer?.active?.taskId === item.id}
+                  onOpen={!workspaceId && item.courseId ? () =>
+                    onSelectStudyTarget?.({ tab: 'assignments', courseId: item.courseId, assignmentId: item.id }) : undefined}
+                  onFiles={workspaceId ? () => setResourceDialog({ kind: 'files', assignment: item }) : undefined}
+                  onTimer={workspaceId ? () => setResourceDialog({ kind: 'timer', assignment: item }) : undefined}
                   onToggle={() => void toggleAssignment(item)}
                   onEdit={() => startEditAssignment(item)}
                   onDelete={() => void deleteAssignment(item)}
@@ -3313,7 +2412,7 @@ export default function StudyPage({
               <p>Theo dõi ngày thi, loại kỳ thi, trọng số điểm và tiến độ ôn tập.</p>
             </div>
             <div className="panel-heading-tools">
-              {courses.length > 0 && (
+              {!workspaceId && courses.length > 0 && (
                 <select
                   aria-label="Lọc môn kỳ thi"
                   className="compact-select"
@@ -3414,7 +2513,7 @@ export default function StudyPage({
                     </div>
                     <h4>{exam.title}</h4>
                     <p className="exam-meta">
-                      {course ? `${course.name}${course.status === 'Archived' ? ' (Lưu trữ)' : ''}` : 'Chưa gắn môn'} ·
+                      {course ? `${course.name}${course.status === 'Completed' ? ' (Hoàn thành)' : ''}` : 'Chưa gắn môn'} ·
                       Ngày thi: <strong>{formatDeadline(exam.date)}</strong> · Trọng số: <strong>{exam.weight}%</strong>
                     </p>
                     <div className="exam-prep-section">
@@ -3493,7 +2592,7 @@ export default function StudyPage({
                   onChange={(e) => setNoteQuery(e.target.value)}
                 />
               </div>
-              {courses.length > 0 && (
+              {!workspaceId && courses.length > 0 && (
                 <select
                   aria-label="Lọc theo môn sổ tay"
                   className="compact-select"
@@ -3568,7 +2667,7 @@ export default function StudyPage({
                       <div>
                         <h4>{note.title}</h4>
                         <span className="note-meta">
-                          {course ? `${course.name}${course.status === 'Archived' ? ' (Lưu trữ)' : ''}` : 'Ghi chú chung'} ·{' '}
+                          {course ? `${course.name}${course.status === 'Completed' ? ' (Hoàn thành)' : ''}` : 'Ghi chú chung'} ·{' '}
                           {formatDeadline(note.date)}
                         </span>
                       </div>
@@ -3645,6 +2744,15 @@ export default function StudyPage({
           )}
         </section>
       )}
+      {courseWorkspace && resourceDialog?.kind === 'files' && <CalendarDialog
+        title={`Tài liệu của ${resourceDialog.assignment.title}`} busy={filesBusy} wide onClose={() => setResourceDialog(null)}>
+        <ProjectDocuments courseId={courseWorkspace.id} tasks={assignments} taskId={resourceDialog.assignment.id} onBusy={setFilesBusy} />
+      </CalendarDialog>}
+      {courseWorkspace && resourceDialog?.kind === 'timer' && <CalendarDialog
+        title={`Bấm giờ · ${resourceDialog.assignment.title}`} onClose={() => setResourceDialog(null)}>
+        <ProjectTimer courseId={courseWorkspace.id} taskId={resourceDialog.assignment.id}
+          taskNames={assignmentNames} onChanged={refreshTimerSummary} />
+      </CalendarDialog>}
     </>
   );
 }
@@ -3658,7 +2766,7 @@ function SummaryCard({
 }: {
   label: string;
   value: string;
-  detail: string;
+  detail?: string;
   icon: React.ReactNode;
   tone: string;
 }) {
@@ -3667,7 +2775,7 @@ function SummaryCard({
       <div className={`study-stat-icon ${tone}`}>{icon}</div>
       <span>{label}</span>
       <strong>{value}</strong>
-      <small>{detail}</small>
+      {detail && <small>{detail}</small>}
     </div>
   );
 }
@@ -3677,6 +2785,13 @@ function AssignmentRow({
   courses,
   busy,
   highlighted,
+  scoped,
+  dependencyNames,
+  trackedSeconds,
+  timing,
+  onOpen,
+  onFiles,
+  onTimer,
   onToggle,
   onEdit,
   onDelete,
@@ -3685,6 +2800,13 @@ function AssignmentRow({
   courses: Course[];
   busy?: boolean;
   highlighted?: boolean;
+  scoped: boolean;
+  dependencyNames: string[];
+  trackedSeconds?: number;
+  timing: boolean;
+  onOpen?: () => void;
+  onFiles?: () => void;
+  onTimer?: () => void;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -3717,21 +2839,34 @@ function AssignmentRow({
       </button>
       <div className="task-copy">
         <div className="task-title-line">
-          <strong>{item.title}</strong>
+          {onOpen ? <button type="button" className="planning-open" onClick={onOpen}>{item.title} <ChevronRight size={14} /></button>
+            : <strong>{item.title}</strong>}
           {item.status === 'In Progress' && !done && <span className="task-status-chip">Đang làm</span>}
         </div>
         <span>
           <i className={`priority-dot priority-${item.priority.toLowerCase()}`} />
-          {course ? `${course.name}${course.status === 'Archived' ? ' (Lưu trữ)' : ''}` : 'Chưa gắn môn'} ·{' '}
+          {!scoped && `${course ? `${course.name}${course.status === 'Completed' ? ' (Hoàn thành)' : ''}` : 'Chưa gắn môn'} · `}
           {item.priority === 'High' ? 'Ưu tiên cao' : item.priority === 'Low' ? 'Ưu tiên thấp' : 'Ưu tiên vừa'} · Nộp{' '}
           {formatDeadline(item.deadline)}
-          {item.estimatedTime && item.estimatedTime !== '0h' ? ` · ⏱ ${item.estimatedTime}` : ''}
         </span>
+        {scoped && <div className="project-task-meta">
+          <span className={!done && remaining < 0 ? 'overdue-text' : undefined}>{state}</span>
+          {dependencyNames.length > 0 && <span title={dependencyNames.join(', ')}><GitBranch size={13} /> {dependencyNames.length} phụ thuộc</span>}
+          {timing ? <span className="project-running-timer"><Clock3 size={13} /> Đang bấm giờ</span>
+            : trackedSeconds !== undefined && <span title="Tổng thời gian bài tập đã lưu"><Clock3 size={13} /> {formatProjectTime(trackedSeconds)}</span>}
+        </div>}
       </div>
-      <span className={`task-due-state ${!done && remaining < 0 ? 'overdue' : !done && remaining === 1 ? 'due-soon' : ''}`}>
+      {!scoped && <span className={`task-due-state ${!done && remaining < 0 ? 'overdue' : !done && remaining <= 7 ? 'due-soon' : ''}`}>
         {state}
-      </span>
-      <button
+      </span>}
+      <div className="project-task-actions">
+        {onTimer && <button type="button" className="icon-button" title="Bấm giờ" aria-label={`Bấm giờ cho ${item.title}`} onClick={onTimer}>
+          <Clock3 size={16} />
+        </button>}
+        {onFiles && <button type="button" className="icon-button" title="Tài liệu" aria-label={`Tài liệu của ${item.title}`} onClick={onFiles}>
+          <Paperclip size={16} />
+        </button>}
+        <button
         className="icon-button"
         type="button"
         title="Sửa bài tập"
@@ -3739,8 +2874,8 @@ function AssignmentRow({
         onClick={onEdit}
       >
         <Pencil size={15} />
-      </button>
-      <button
+        </button>
+        <button
         className="icon-button task-delete"
         type="button"
         disabled={busy}
@@ -3749,7 +2884,8 @@ function AssignmentRow({
         onClick={onDelete}
       >
         <Trash2 size={15} />
-      </button>
+        </button>
+      </div>
     </div>
   );
 }

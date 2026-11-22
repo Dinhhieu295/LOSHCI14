@@ -1,6 +1,7 @@
 import type { LifeOsRepositories } from '../ports/repositories.js';
 import { AuthService } from './auth-service.js';
 import { PersonalService } from './personal-service.js';
+import { PlanningService } from './planning-service.js';
 import { ProfileService } from './profile-service.js';
 import { ProjectService } from './project-service.js';
 import { StudyService } from './study-service.js';
@@ -12,6 +13,7 @@ export function createServices(repository: LifeOsRepositories) {
     projects: new ProjectService(repository),
     study: new StudyService(repository),
     personal: new PersonalService(repository),
+    planning: new PlanningService(repository),
   };
 }
 

@@ -5,6 +5,10 @@ import { HttpError } from '../http/errors.js';
 import { ApplicationError } from '../application/errors.js';
 
 export const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
+  if (error?.type === 'entity.too.large') {
+    response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'Dữ liệu gửi lên vượt quá dung lượng cho phép.' } });
+    return;
+  }
   if (error instanceof ZodError) {
     response.status(400).json({
       error: {
@@ -24,7 +28,7 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
   if (error instanceof ApplicationError) {
     const status = error.code === 'INVALID_CREDENTIALS' || error.code === 'UNAUTHENTICATED' || error.code === 'SESSION_EXPIRED' ? 401
       : error.code === 'USER_NOT_FOUND' || error.code.endsWith('_NOT_FOUND') ? 404
-      : error.code === 'ALREADY_EXISTS' ? 409
+      : error.code === 'ALREADY_EXISTS' || error.code === 'CALENDAR_CONFLICT' || error.code === 'PROJECT_TIMER_CONFLICT' ? 409
       : 400;
     response.status(status).json({ error: { code: error.code, message: error.message } });
     return;

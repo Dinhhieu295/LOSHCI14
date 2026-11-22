@@ -1,6 +1,7 @@
 import { closeDatabase } from './index.js';
 import { config } from '../config.js';
 import { createServices } from '../application/services/index.js';
+import { ApplicationError } from '../application/errors.js';
 import { KyselyLifeOsRepository } from '../infrastructure/repositories/kysely-lifeos-repository.js';
 import type { ProjectInput, TaskInput } from '../application/models.js';
 
@@ -25,6 +26,48 @@ const task = (title: string, dueOffset: number, priority: string, status: string
   startDay: index * 3, durationDays: 2, baselineStart: index * 3, baselineDuration: 2,
   isMilestone: false, dependencies: [],
 });
+
+const personalTasks: TaskInput[] = [
+  { ...task('Đi lấy đồ ở bưu cục', 1, 'High', 'todo', 0), estimate: '30m' },
+  { ...task('Mua đồ dùng cho tuần tới', 2, 'Medium', 'todo', 0), estimate: '45m' },
+  { ...task('Trả sách thư viện', 4, 'Low', 'todo', 0), estimate: '30m' },
+  { ...task('Dự sinh nhật bạn', 1, 'High', 'todo', 0), dueDate: null, estimate: '90m',
+    fixedSlot: { date: date(1), start: 18 * 60 + 30, end: 20 * 60 } },
+  { ...task('Tập cầu lông với bạn', 3, 'Medium', 'todo', 0), dueDate: null, estimate: '60m',
+    fixedSlot: { date: date(3), start: 20 * 60, end: 21 * 60 } },
+  { ...task('Đi dạy gia sư', 1, 'High', 'todo', 0), category: 'employment', dueDate: null, estimate: '90m',
+    fixedSlot: { date: date(1), start: 20 * 60 + 15, end: 21 * 60 + 45 } },
+  { ...task('Ca làm thêm tại quán cà phê', 3, 'High', 'todo', 0), category: 'employment', dueDate: null, estimate: '120m',
+    fixedSlot: { date: date(3), start: 18 * 60, end: 20 * 60 } },
+  { ...task('Soạn bài cho buổi dạy', 1, 'Medium', 'todo', 0), category: 'employment', dueDate: null, estimate: '45m',
+    fixedSlot: { date: date(2), start: 21 * 60, end: 21 * 60 + 45 } },
+  { ...task('Khởi hành đi du lịch', 7, 'Medium', 'todo', 0), dueDate: null, estimate: '60m',
+    fixedSlot: { date: date(7), start: 7 * 60, end: 8 * 60 } },
+];
+
+async function seedPersonalTask(userId: string, sample: TaskInput, existingId?: string) {
+  const input = { ...sample, subtasksTotal: 0, assignee: '' };
+  if (!sample.fixedSlot) {
+    await services.projects.createPersonalTask(userId, input);
+    return;
+  }
+  const first = Date.parse(`${sample.fixedSlot.date}T12:00:00Z`);
+  for (let offset = 0; offset < 7; offset += 1) {
+    const date = new Date(first + offset * 86_400_000).toISOString().slice(0, 10);
+    try {
+      const fixedSlot = { ...sample.fixedSlot, date };
+      if (existingId) {
+        await services.projects.updatePersonalTask(userId, existingId, { fixedSlot, dueDate: sample.dueDate });
+      } else {
+        await services.projects.createPersonalTask(userId, { ...input, fixedSlot });
+      }
+      return;
+    } catch (error) {
+      if (!(error instanceof ApplicationError) || error.code !== 'CALENDAR_CONFLICT') throw error;
+    }
+  }
+  console.warn(`Chưa tìm được giờ cho việc mẫu “${sample.title}”.`);
+}
 
 const projects: { project: ProjectInput; tasks: TaskInput[] }[] = [
   {
@@ -73,12 +116,15 @@ const projects: { project: ProjectInput; tasks: TaskInput[] }[] = [
 ];
 
 const courseMocks = [
-  { name: 'Lập trình cơ bản', code: 'UET-CS101', instructor: 'TS. Lê Minh', credits: 3, progress: 72, score10: 8.2, grade: 'B+', attendance: 95, studyHours: 24, aimStudyHours: 42, color: '#4f8cff' },
-  { name: 'Cấu trúc dữ liệu và giải thuật', code: 'UET-CS201', instructor: 'PGS. Nguyễn Hà', credits: 4, progress: 58, score10: null, grade: 'N/A', attendance: 92, studyHours: 31, aimStudyHours: 60, color: '#8b5cf6' },
-  { name: 'Cơ sở dữ liệu', code: 'UET-IS202', instructor: 'ThS. Trần Anh', credits: 3, progress: 64, score10: 7.8, grade: 'B', attendance: 100, studyHours: 20, aimStudyHours: 40, color: '#22c55e' },
-  { name: 'Mạng máy tính', code: 'UET-CE301', instructor: 'TS. Phạm Quân', credits: 3, progress: 40, score10: null, grade: 'N/A', attendance: 88, studyHours: 14, aimStudyHours: 45, color: '#f59e0b' },
-  { name: 'Trí tuệ nhân tạo', code: 'UET-AI401', instructor: 'PGS. Đỗ Lan', credits: 3, progress: 35, score10: null, grade: 'N/A', attendance: 96, studyHours: 18, aimStudyHours: 50, color: '#ec4899' },
-  { name: 'Kiến trúc máy tính', code: 'UET-CE204', instructor: 'TS. Vũ Hoàng', credits: 3, progress: 80, score10: 8.6, grade: 'A', attendance: 94, studyHours: 28, aimStudyHours: 36, color: '#06b6d4' },
+  { name: 'Lập trình cơ bản', code: 'UET-CS101', instructor: 'TS. Lê Minh', credits: 3, progress: 72, attendance: 95, aimStudyHours: 42, color: '#4f8cff',
+    gradeComponents: [{ name: 'Giữa kỳ', score10: 7, weight: 40 }, { name: 'Cuối kỳ', score10: 9, weight: 60 }] },
+  { name: 'Cấu trúc dữ liệu và giải thuật', code: 'UET-CS201', instructor: 'PGS. Nguyễn Hà', credits: 4, progress: 58, attendance: 92, aimStudyHours: 60, color: '#8b5cf6' },
+  { name: 'Cơ sở dữ liệu', code: 'UET-IS202', instructor: 'ThS. Trần Anh', credits: 3, progress: 64, attendance: 100, aimStudyHours: 40, color: '#22c55e',
+    gradeComponents: [{ name: 'Giữa kỳ', score10: 7.5, weight: 40 }, { name: 'Cuối kỳ', score10: 8, weight: 60 }] },
+  { name: 'Mạng máy tính', code: 'UET-CE301', instructor: 'TS. Phạm Quân', credits: 3, progress: 40, attendance: 88, aimStudyHours: 45, color: '#f59e0b' },
+  { name: 'Trí tuệ nhân tạo', code: 'UET-AI401', instructor: 'PGS. Đỗ Lan', credits: 3, progress: 35, attendance: 96, aimStudyHours: 50, color: '#ec4899' },
+  { name: 'Kiến trúc máy tính', code: 'UET-CE204', instructor: 'TS. Vũ Hoàng', credits: 3, progress: 80, attendance: 94, aimStudyHours: 36, color: '#06b6d4',
+    gradeComponents: [{ name: 'Giữa kỳ', score10: 8, weight: 40 }, { name: 'Cuối kỳ', score10: 9, weight: 60 }] },
 ];
 
 try {
@@ -158,7 +204,17 @@ try {
     { courseId: coursesByCode.get('UET-IS202'), date: date(-4), durationMinutes: 75, note: 'Thiết kế ERD cho project Thư viện số.' },
   ]);
 
-  console.log('Đã chuẩn bị tài khoản UET demo, 3 dự án công nghệ, 6 môn học và dữ liệu học tập liên quan.');
+  const existingPersonalTasks = await services.projects.listPersonalTasks(userId);
+  for (const sample of personalTasks) {
+    const current = existingPersonalTasks.find((task) => task.title === sample.title);
+    if (!current) {
+      await seedPersonalTask(userId, sample);
+    } else if (sample.fixedSlot && current.category === 'employment' && !current.fixedSlot) {
+      await seedPersonalTask(userId, sample, current.id);
+    }
+  }
+
+  console.log('Đã chuẩn bị tài khoản UET demo, các dự án, môn học và công việc mẫu.');
   console.log(`Tài khoản: ${email}`);
   console.log(`Mật khẩu: ${password}`);
 } finally {

@@ -1,5 +1,7 @@
 import type { Generated } from 'kysely';
 
+export type AiProvider = 'openai' | 'gemini' | 'groq';
+
 export interface UsersTable {
   id: string;
   email: string;
@@ -42,7 +44,12 @@ export interface ProjectsTable {
 
 export interface TasksTable {
   id: string;
-  project_id: string;
+  project_id: string | null;
+  personal_user_id: string | null;
+  category: 'employment' | 'personal' | null;
+  fixed_date: string | null;
+  fixed_start_minute: number | null;
+  fixed_end_minute: number | null;
   title: string;
   priority: string;
   subtasks_done: number;
@@ -51,6 +58,7 @@ export interface TasksTable {
   assignee: string;
   status: string;
   is_done: number;
+  completed_at: string | null;
   estimate: string;
   actual: string;
   start_day: number;
@@ -74,7 +82,9 @@ export interface CoursesTable {
   progress: number;
   score10: number | null;
   grade: string;
+  grade_components_json: string;
   attendance: number;
+  absences: number | null;
   study_hours: number;
   aim_study_hours: number;
   color: string;
@@ -93,6 +103,7 @@ export interface AssignmentsTable {
   status: string;
   prev_status: string | null;
   estimated_time: string;
+  dependencies_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -162,13 +173,8 @@ export interface StudyLogsTable {
 
 export interface PersonalStatesTable {
   user_id: string;
-  coins: number;
-  growth_xp: number;
   streak: number;
   last_login_date: string;
-  selected_seed: string;
-  shop_items_json: string;
-  history_json: string;
   updated_at: string;
 }
 
@@ -185,6 +191,49 @@ export interface Database {
   course_sessions: CourseSessionsTable;
   study_logs: StudyLogsTable;
   personal_states: PersonalStatesTable;
+  study_availability: { user_id: string; windows_json: string };
+  study_feedback: { user_id: string; course_id: string; preference: 'more' | 'less' };
+  assistant_settings: {
+    user_id: string;
+    provider: AiProvider;
+    model: string;
+    encrypted_key: string;
+  };
+  assistant_conversations: {
+    user_id: string;
+    scope: string;
+    messages_json: string;
+  };
+  task_schedule_blocks: {
+    id: string;
+    user_id: string;
+    task_id: string;
+    scheduled_date: string;
+    start_minute: number;
+    end_minute: number;
+  };
+  project_task_files: {
+    id: string;
+    task_id: string | null;
+    assignment_id: string | null;
+    project_id: string | null;
+    course_id: string | null;
+    name: string;
+    size_bytes: number;
+    contents: Buffer;
+    created_at: string;
+  };
+  project_timer_sessions: {
+    id: string;
+    project_id: string | null;
+    course_id: string | null;
+    task_id: string | null;
+    assignment_id: string | null;
+    task_title: string | null;
+    started_at: string;
+    stopped_at: string | null;
+    duration_seconds: number | null;
+  };
 }
 
 export type NewRow<T> = Omit<T, keyof { id: Generated<string> }>;

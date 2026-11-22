@@ -84,87 +84,15 @@
 }
 .password-success-banner span { flex: 1; }
 
-/* Personal Garden Config & History */
-.personal-panels-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-.garden-config-form {
-  display: grid;
-  gap: 11px;
-}
-.garden-config-form label {
-  display: grid;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #5f6d5e;
-}
-.garden-config-form select,
-.garden-config-form input {
-  width: 100%;
-  border: 1px solid #e4e9e2;
-  border-radius: 8px;
-  background: #fff;
-  color: #344235;
-  font: inherit;
-  font-size: 13px;
-  padding: 10px 11px;
-  outline: none;
-}
-.garden-config-form select:focus,
-.garden-config-form input:focus {
-  border-color: #9bbb95;
-  box-shadow: 0 0 0 3px #7fa98018;
-}
-.personal-history-list {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid #eef1ec;
-  display: grid;
-  gap: 7px;
-}
-.personal-history-list > strong {
-  font-size: 12px;
-  color: #425243;
-}
-.personal-history-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  padding: 6px 9px;
-  border-radius: 7px;
-  background: #f7f9f5;
-}
-.personal-history-item span {
-  color: #788477;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.personal-history-item strong {
-  color: #354236;
-  font-weight: 600;
-}
-
-:root[data-theme='dark'] .password-change-form,
-:root[data-theme='dark'] .personal-history-list { border-color: var(--dark-border); }
-:root[data-theme='dark'] .password-form-header h4,
-:root[data-theme='dark'] .personal-history-list > strong,
-:root[data-theme='dark'] .personal-history-item strong { color: var(--dark-text); }
+:root[data-theme='dark'] .password-change-form { border-color: var(--dark-border); }
+:root[data-theme='dark'] .password-form-header h4 { color: var(--dark-text); }
 :root[data-theme='dark'] .password-form-header p,
-:root[data-theme='dark'] .password-form-grid label,
-:root[data-theme='dark'] .garden-config-form label,
-:root[data-theme='dark'] .personal-history-item span { color: var(--dark-muted); }
-:root[data-theme='dark'] .password-form-grid input,
-:root[data-theme='dark'] .garden-config-form select,
-:root[data-theme='dark'] .garden-config-form input {
+:root[data-theme='dark'] .password-form-grid label { color: var(--dark-muted); }
+:root[data-theme='dark'] .password-form-grid input {
   background: #141b16;
   border-color: var(--dark-border);
   color: var(--dark-text);
 }
-:root[data-theme='dark'] .personal-history-item { background: var(--dark-surface-raised); }
 :root[data-theme='dark'] .password-success-banner {
   background: #223526;
   border-color: #38583e;
@@ -172,8 +100,7 @@
 }
 
 @media (max-width: 900px) {
-  .password-form-grid,
-  .personal-panels-grid { grid-template-columns: 1fr; }
+  .password-form-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 680px) {
