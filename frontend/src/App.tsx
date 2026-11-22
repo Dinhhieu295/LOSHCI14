@@ -4,13 +4,14 @@ import {
   ArrowRight,
   ArrowUpRight,
   Award,
+  BarChart3,
   BookOpen,
   CalendarDays,
+  ClipboardList,
   Check,
   ChevronDown,
   CircleHelp,
   Clock3,
-  Coins,
   Compass,
   Eye,
   EyeOff,
@@ -23,11 +24,13 @@ import {
   Moon,
   Pin,
   RefreshCw,
+  Settings,
   Sparkles,
   Sprout,
   Sun,
   Target,
   TrendingUp,
+  UserRound,
   WifiOff,
   X,
   Zap,
@@ -37,7 +40,6 @@ import {
   getToken,
   setToken,
   signIn,
-  updatePersonalState,
   type Assignment,
   type Course,
   type CourseSession,
@@ -45,7 +47,6 @@ import {
   type NoticeInput,
   type NoticePayload,
   type NoticeType,
-  type PersonalHistoryEntry,
   type PersonalState,
   type Project,
   type ProjectTask,
@@ -55,16 +56,21 @@ import {
   type StudySummary,
   type User,
 } from './api';
-import ProjectsPage from './ProjectsPage';
+import ProjectsPage, { type ProjectView } from './ProjectsPage';
 import ProfileEditor from './ProfileEditor';
 import GlobalSearch, { type SearchTarget } from './GlobalSearch';
 import StudyPage, { computeUnifiedStudyHours, type StudyTab } from './StudyPage';
+import WorkPage, { type WorkView } from './WorkPage';
+import StudyRecommendations from './StudyRecommendations';
+import TimetablePage from './TimetablePage';
+import SettingsPage from './SettingsPage';
+import { calculateGpa } from './studyPlanning';
 import './profile.css';
 
-type Section = 'overview' | 'projects' | 'study' | 'personal';
+type Section = 'overview' | 'projects' | 'study' | 'calendar' | 'work' | 'personal' | 'settings';
 
-const validSections: Section[] = ['overview', 'projects', 'study', 'personal'];
-const validStudyTabs: StudyTab[] = ['all', 'courses', 'assignments', 'exams', 'notes', 'schedule'];
+const validSections: Section[] = ['overview', 'projects', 'study', 'calendar', 'work', 'personal', 'settings'];
+const validStudyTabs: StudyTab[] = ['courses', 'assignments', 'exams', 'notes', 'time', 'recommendations', 'documents', 'course-schedule'];
 
 interface UrlState {
   section: Section;
@@ -75,13 +81,17 @@ interface UrlState {
   examId: string | null;
   noteId: string | null;
   studyTab: StudyTab;
+  projectView: ProjectView;
+  workView: WorkView;
+  calendarWeek: string | null;
+  calendarAvailability: boolean;
 }
 
 function readUrlState(): UrlState {
   const pathSeg = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0] as Section;
   const params = new URLSearchParams(window.location.search);
   const querySection = params.get('section') as Section | null;
-  const section: Section = validSections.includes(pathSeg)
+  let section: Section = validSections.includes(pathSeg)
     ? pathSeg
     : querySection && validSections.includes(querySection)
       ? querySection
@@ -93,8 +103,33 @@ function readUrlState(): UrlState {
   const examId = params.get('exam') || null;
   const noteId = params.get('note') || null;
   const tabParam = params.get('tab') as StudyTab | null;
-  const studyTab: StudyTab = tabParam && validStudyTabs.includes(tabParam) ? tabParam : 'all';
-  return { section, projectId, taskId, courseId, assignmentId, examId, noteId, studyTab };
+  let studyTab: StudyTab = tabParam && validStudyTabs.includes(tabParam)
+    ? tabParam
+    : assignmentId ? 'assignments' : examId ? 'exams' : noteId ? 'notes' : 'courses';
+  const view = params.get('view');
+  const legacyPlanning = String(pathSeg) === 'planning' || String(querySection) === 'planning';
+  if (legacyPlanning) {
+    section = view === 'availability' ? 'calendar' : view === 'work' ? 'work' : 'study';
+    if (section === 'study') studyTab = 'recommendations';
+  }
+  if (String(pathSeg) === 'gpa' || String(querySection) === 'gpa') {
+    section = 'study';
+    studyTab = 'courses';
+  }
+  if (section === 'study' && params.get('tab') === 'schedule') section = 'calendar';
+  if (section === 'study' && courseId) {
+    if (params.get('tab') === 'course-info') studyTab = 'course-schedule';
+    else if (studyTab === 'courses') studyTab = 'assignments';
+  }
+  if (!courseId && (studyTab === 'documents' || studyTab === 'course-schedule')) studyTab = 'courses';
+  const week = params.get('week');
+  const date = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? new Date(`${week}T12:00:00Z`) : null;
+  const calendarWeek = date && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === week ? week : null;
+  return { section, projectId, taskId, courseId, assignmentId, examId, noteId, studyTab, calendarWeek,
+    projectView: section === 'projects' && view === 'deadlines' ? 'deadlines' : 'list',
+    workView: view === 'projects' || (legacyPlanning && view === 'work') ? 'projects'
+      : view === 'employment' ? 'employment' : 'personal',
+    calendarAvailability: section === 'calendar' && view === 'availability' };
 }
 
 function buildUrl(
@@ -107,6 +142,10 @@ function buildUrl(
     examId?: string | null;
     noteId?: string | null;
     studyTab?: StudyTab;
+    projectView?: ProjectView;
+    workView?: WorkView;
+    calendarWeek?: string | null;
+    calendarAvailability?: boolean;
   } = {},
 ) {
   const basePath = section === 'overview' ? '/' : `/${section}`;
@@ -114,13 +153,25 @@ function buildUrl(
   if (section === 'projects') {
     if (opts.projectId) params.set('project', opts.projectId);
     if (opts.taskId) params.set('task', opts.taskId);
+    if (opts.projectView === 'deadlines') params.set('view', 'deadlines');
   }
   if (section === 'study') {
-    if (opts.studyTab && opts.studyTab !== 'all') params.set('tab', opts.studyTab);
+    if (opts.studyTab && opts.studyTab !== 'courses') params.set('tab', opts.studyTab);
     if (opts.courseId) params.set('course', opts.courseId);
     if (opts.assignmentId) params.set('assignment', opts.assignmentId);
     if (opts.examId) params.set('exam', opts.examId);
     if (opts.noteId) params.set('note', opts.noteId);
+  }
+  if (section === 'work') {
+    if (opts.workView === 'projects') params.set('view', 'projects');
+    else {
+      if (opts.workView === 'employment') params.set('view', 'employment');
+      if (opts.taskId) params.set('task', opts.taskId);
+    }
+  }
+  if (section === 'calendar') {
+    if (opts.calendarWeek) params.set('week', opts.calendarWeek);
+    if (opts.calendarAvailability) params.set('view', 'availability');
   }
   const search = params.toString();
   return search ? `${basePath}?${search}` : basePath;
@@ -130,7 +181,10 @@ const navItems: { id: Section; label: string; icon: typeof LayoutDashboard }[] =
   { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard },
   { id: 'projects', label: 'Dự án', icon: FolderKanban },
   { id: 'study', label: 'Học tập', icon: GraduationCap },
-  { id: 'personal', label: 'Cá nhân', icon: Sprout },
+  { id: 'work', label: 'Công việc', icon: ClipboardList },
+  { id: 'calendar', label: 'Lịch trình', icon: CalendarDays },
+  { id: 'personal', label: 'Cá nhân', icon: UserRound },
+  { id: 'settings', label: 'Cài đặt', icon: Settings },
 ];
 
 const today = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
@@ -169,6 +223,10 @@ export default function App() {
   const [selectedExamId, setSelectedExamId] = useState<string | null>(initialUrl.examId);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(initialUrl.noteId);
   const [studyTab, setStudyTab] = useState<StudyTab>(initialUrl.studyTab);
+  const [projectView, setProjectView] = useState<ProjectView>(initialUrl.projectView);
+  const [workView, setWorkView] = useState<WorkView>(initialUrl.workView);
+  const [calendarWeek, setCalendarWeek] = useState<string | null>(initialUrl.calendarWeek);
+  const [calendarAvailability, setCalendarAvailability] = useState(initialUrl.calendarAvailability);
 
   const [mobileNav, setMobileNav] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -177,6 +235,7 @@ export default function App() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasksByProject, setTasksByProject] = useState<Record<string, ProjectTask[]>>({});
+  const [personalTasks, setPersonalTasks] = useState<ProjectTask[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [courseSessions, setCourseSessions] = useState<CourseSession[]>([]);
   const [studyLogs, setStudyLogs] = useState<StudyLog[]>([]);
@@ -217,6 +276,7 @@ export default function App() {
     setExams([]);
     setNotes([]);
     setScheduleItems([]);
+    setPersonalTasks([]);
     setSummary(null);
     setPersonal(null);
     setSearchTarget(null);
@@ -252,12 +312,17 @@ export default function App() {
         examId?: string | null;
         noteId?: string | null;
         studyTab?: StudyTab;
+        projectView?: ProjectView;
+        workView?: WorkView;
+        calendarWeek?: string | null;
+        calendarAvailability?: boolean;
         replace?: boolean;
       } = {},
     ) => {
       setSectionState(nextSection);
       const nextProj = opts.projectId !== undefined ? opts.projectId : nextSection === 'projects' ? selectedProjectId : null;
-      const nextTask = opts.taskId !== undefined ? opts.taskId : nextSection === 'projects' ? selectedTaskId : null;
+      const nextTask = opts.taskId !== undefined ? opts.taskId
+        : nextSection === section && (nextSection === 'projects' || nextSection === 'work') ? selectedTaskId : null;
       const nextCourse = opts.courseId !== undefined ? opts.courseId : nextSection === 'study' ? selectedCourseId : null;
       const nextAssignment =
         opts.assignmentId !== undefined ? opts.assignmentId : nextSection === 'study' ? selectedAssignmentId : null;
@@ -272,6 +337,14 @@ export default function App() {
       setSelectedExamId(nextExam);
       setSelectedNoteId(nextNote);
       if (opts.studyTab !== undefined) setStudyTab(opts.studyTab);
+      const nextProjectView = opts.projectView ?? (section === 'projects' && nextSection === 'projects' ? projectView : 'list');
+      const nextWorkView = opts.workView ?? workView;
+      const nextWeek = opts.calendarWeek !== undefined ? opts.calendarWeek : calendarWeek;
+      const nextAvailability = opts.calendarAvailability ?? (section === 'calendar' && nextSection === 'calendar' && calendarAvailability);
+      setWorkView(nextWorkView);
+      setProjectView(nextProjectView);
+      setCalendarWeek(nextWeek);
+      setCalendarAvailability(nextAvailability);
 
       const nextUrl = buildUrl(nextSection, {
         projectId: nextProj,
@@ -281,6 +354,10 @@ export default function App() {
         examId: nextExam,
         noteId: nextNote,
         studyTab: nextTab,
+        projectView: nextProjectView,
+        workView: nextWorkView,
+        calendarWeek: nextWeek,
+        calendarAvailability: nextAvailability,
       });
       if (window.location.pathname + window.location.search !== nextUrl) {
         if (opts.replace) window.history.replaceState(null, '', nextUrl);
@@ -295,8 +372,17 @@ export default function App() {
       selectedExamId,
       selectedNoteId,
       studyTab,
+      section,
+      projectView,
+      workView,
+      calendarWeek,
+      calendarAvailability,
     ],
   );
+
+  const selectProject = useCallback((id: string | null, taskId?: string | null) => {
+    navigateSection('projects', { projectId: id, taskId: taskId ?? null, replace: id === selectedProjectId });
+  }, [navigateSection, selectedProjectId]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -309,6 +395,10 @@ export default function App() {
       setSelectedExamId(state.examId);
       setSelectedNoteId(state.noteId);
       setStudyTab(state.studyTab);
+      setProjectView(state.projectView);
+      setWorkView(state.workView);
+      setCalendarWeek(state.calendarWeek);
+      setCalendarAvailability(state.calendarAvailability);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -383,6 +473,7 @@ export default function App() {
       try {
         const [
           projectRows,
+          personalTaskRows,
           courseRows,
           assignmentRows,
           examRows,
@@ -394,6 +485,7 @@ export default function App() {
           state,
         ] = await Promise.all([
           api<Project[]>('/projects'),
+          api<ProjectTask[]>('/tasks'),
           api<Course[]>('/study/courses'),
           api<Assignment[]>('/study/assignments'),
           api<Exam[]>('/study/exams'),
@@ -407,6 +499,7 @@ export default function App() {
         if (currentGen !== loadGenRef.current || expectedUserId !== activeUserIdRef.current) return;
 
         setProjects(projectRows);
+        setPersonalTasks(personalTaskRows);
         setCourses(courseRows);
         setAssignments(assignmentRows);
         setExams(examRows);
@@ -574,6 +667,7 @@ export default function App() {
     setSearchTarget(target);
     if (target.kind === 'course') {
       navigateSection('study', {
+        studyTab: 'assignments',
         courseId: target.courseId ?? null,
         assignmentId: null,
         examId: null,
@@ -581,21 +675,24 @@ export default function App() {
       });
     } else if (target.kind === 'assignment') {
       navigateSection('study', {
-        courseId: null,
+        studyTab: 'assignments',
+        courseId: assignments.find((item) => item.id === target.assignmentId)?.courseId ?? null,
         assignmentId: target.assignmentId ?? null,
         examId: null,
         noteId: null,
       });
     } else if (target.kind === 'exam') {
       navigateSection('study', {
-        courseId: null,
+        studyTab: 'exams',
+        courseId: exams.find((item) => item.id === target.examId)?.courseId ?? null,
         assignmentId: null,
         examId: target.examId ?? null,
         noteId: null,
       });
     } else if (target.kind === 'note') {
       navigateSection('study', {
-        courseId: null,
+        studyTab: 'notes',
+        courseId: notes.find((item) => item.id === target.noteId)?.courseId ?? null,
         assignmentId: null,
         examId: null,
         noteId: target.noteId ?? null,
@@ -651,33 +748,21 @@ export default function App() {
             <button
               key={id}
               className={`nav-item ${section === id ? 'active' : ''}`}
+              aria-current={section === id ? 'page' : undefined}
               onClick={() => {
-                navigateSection(id);
+                navigateSection(id, id === 'projects' ? { projectId: null, taskId: null, projectView: 'list' }
+                  : id === 'study' ? { studyTab: 'courses', courseId: null, assignmentId: null, examId: null, noteId: null } : undefined);
                 setMobileNav(false);
               }}
             >
               <Icon size={18} />
               <span>{label}</span>
-              {id === 'projects' && projects.length > 0 && <small>{projects.length}</small>}
-              {id === 'study' && courses.length > 0 && <small>{courses.length}</small>}
+              {id === 'projects' && projects.length > 0 && <small aria-hidden="true">{projects.length}</small>}
+              {id === 'study' && courses.length > 0 && <small aria-hidden="true">{courses.length}</small>}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="upgrade-card">
-            <div className="upgrade-spark">
-              <Sparkles size={16} />
-            </div>
-            <strong>Nhịp sống của bạn</strong>
-            <p>Mỗi bước nhỏ đều đưa bạn đến gần mục tiêu hơn.</p>
-            <div className="upgrade-progress">
-              <span style={{ width: `${Math.min(100, (personal?.growthXP ?? 0) % 100)}%` }} />
-            </div>
-            <div className="upgrade-meta">
-              <span>{personal?.growthXP ?? 0} XP</span>
-              <span>Cấp {Math.floor((personal?.growthXP ?? 0) / 100) + 1}</span>
-            </div>
-          </div>
           <button
             ref={helpButtonRef}
             className="nav-item muted-nav"
@@ -730,10 +815,16 @@ export default function App() {
                 <strong>Dự án:</strong> tạo/sửa dự án, chia nhỏ thành task, quản lý subtasks, phụ thuộc và timeline.
               </li>
               <li>
-                <strong>Học tập:</strong> quản lý môn học, thời khóa biểu, bài tập, kỳ thi, ghi chú, lịch cá nhân và bấm giờ tự học.
+                <strong>Học tập:</strong> quản lý môn học, bài tập, kỳ thi, ghi chú và nhật ký học.
               </li>
               <li>
-                <strong>Cá nhân:</strong> cập nhật hồ sơ, đổi mật khẩu bảo mật, xem chuỗi ngày và chăm sóc vườn hạt giống.
+                <strong>Công việc:</strong> quản lý việc làm, việc cá nhân và theo dõi tiến độ dự án.
+              </li>
+              <li>
+                <strong>Lịch trình:</strong> xem lịch học, hạn công việc và xếp giờ theo từng tuần.
+              </li>
+              <li>
+                <strong>Cá nhân:</strong> cập nhật hồ sơ và đổi mật khẩu.
               </li>
             </ul>
             <p>
@@ -868,11 +959,11 @@ export default function App() {
               onTargetOpened={() => setSearchTarget(null)}
               remindersEnabled={remindersEnabled}
               onToggleReminders={toggleReminders}
+              view={projectView}
+              onViewChange={(view) => navigateSection('projects', { projectView: view, projectId: null, taskId: null })}
               selectedProjectId={selectedProjectId}
               selectedTaskId={selectedTaskId}
-              onSelectProject={(pId, tId) =>
-                navigateSection('projects', { projectId: pId, taskId: tId ?? null, replace: true })
-              }
+              onSelectProject={selectProject}
             />
           )}
           {section === 'study' && (
@@ -885,13 +976,14 @@ export default function App() {
               assignments={assignments}
               exams={exams}
               notes={notes}
-              scheduleItems={scheduleItems}
               summary={summary}
               loading={loading || !dataReady}
               onRefresh={() => loadData({ throwOnError: true })}
               onNotice={showNotice}
               activeTab={studyTab}
-              onTabChange={(t) => navigateSection('study', { studyTab: t, replace: true })}
+              onTabChange={(t) => navigateSection('study', {
+                studyTab: t, courseId: null, assignmentId: null, examId: null, noteId: null,
+              })}
               selectedCourseId={selectedCourseId}
               selectedAssignmentId={selectedAssignmentId}
               selectedExamId={selectedExamId}
@@ -903,27 +995,70 @@ export default function App() {
                   assignmentId: opts.assignmentId ?? null,
                   examId: opts.examId ?? null,
                   noteId: opts.noteId ?? null,
-                  replace: true,
                 })
               }
               openTarget={searchTarget}
               onTargetOpened={() => setSearchTarget(null)}
+              recommendations={<StudyRecommendations
+                courses={courses} assignments={assignments} exams={exams}
+                sessions={courseSessions} schedule={scheduleItems} personalTasks={personalTasks} onNotice={showNotice}
+                onOpenCourses={() => navigateSection('study', { studyTab: 'courses' })}
+                onOpenAvailability={() => navigateSection('calendar', { calendarAvailability: true })}
+              />}
+            />
+          )}
+          {(section === 'work' || section === 'calendar') && !dataReady && (
+            <p role="status">Đang tải dữ liệu…</p>
+          )}
+          {section === 'calendar' && dataReady && (
+            <TimetablePage
+              key={user.id}
+              courses={courses}
+              sessions={courseSessions}
+              schedule={scheduleItems}
+              projects={projects}
+              tasksByProject={tasksByProject}
+              personalTasks={personalTasks}
+              setSchedule={setScheduleItems}
+              weekDate={calendarWeek}
+              onWeekChange={(week) => navigateSection('calendar', { calendarWeek: week })}
+              showAvailability={calendarAvailability}
+              onAvailabilityChange={(show) => navigateSection('calendar', { calendarAvailability: show, replace: true })}
+              onNotice={showNotice}
+              onOpenCourse={(courseId) => navigateSection('study', { studyTab: courseId ? 'course-schedule' : 'courses', courseId: courseId ?? null })}
+              onOpenTask={(projectId, taskId) => projectId
+                ? navigateSection('projects', { projectId, taskId })
+                : navigateSection('work', { workView: personalTasks.find((task) => task.id === taskId)?.category ?? 'personal', taskId })}
+            />
+          )}
+          {section === 'work' && dataReady && (
+            <WorkPage
+              key={user.id}
+              view={workView}
+              activeTaskId={selectedTaskId}
+              personalTasks={personalTasks}
+              setPersonalTasks={setPersonalTasks}
+              projects={projects}
+              tasksByProject={tasksByProject}
+              onViewChange={(view) => navigateSection('work', { workView: view, taskId: null })}
+              onSelectTask={(taskId) => navigateSection('work', { taskId, replace: true })}
+              onOpenProjectTask={(projectId, taskId) => navigateSection('projects', { projectId, taskId })}
+              onNotice={showNotice}
             />
           )}
           {section === 'personal' && (
-            <>
-              <ProfileEditor
-                user={user}
-                onSaved={setUser}
-                onNotice={showNotice}
-                onSessionExpired={() => {
-                  clearUserData();
-                  setUser(null);
-                }}
-              />
-              <PersonalPage personal={personal} onRefresh={loadData} onNotice={showNotice} />
-            </>
+            <ProfileEditor
+              user={user}
+              onSaved={setUser}
+              onNotice={showNotice}
+              onSessionExpired={() => {
+                clearUserData();
+                setUser(null);
+              }}
+            />
           )}
+          {section === 'settings' && <SettingsPage key={user.id} dark={theme === 'dark'} reminders={remindersEnabled}
+            onTheme={(enabled) => setTheme(enabled ? 'dark' : 'light')} onReminders={toggleReminders} />}
         </div>
       </main>
     </div>
@@ -1115,12 +1250,7 @@ function AuthScreen({
   );
 }
 
-function PageHeading({
-  eyebrow,
-  title,
-  subtitle,
-  action,
-}: {
+function PageHeading({ eyebrow, title, subtitle, action }: {
   eyebrow: string;
   title: string;
   subtitle: string;
@@ -1129,10 +1259,7 @@ function PageHeading({
   return (
     <div className="page-heading">
       <div>
-        <div className="eyebrow">
-          <span />
-          {eyebrow}
-        </div>
+        <div className="eyebrow"><span />{eyebrow}</div>
         <h1>{title}</h1>
         <p>{subtitle}</p>
       </div>
@@ -1181,7 +1308,8 @@ function Overview({
   onRefresh: () => Promise<void>;
 }) {
   const firstName = user.fullName.split(' ')[0];
-  const unifiedStudy = useMemo(() => computeUnifiedStudyHours(courses, studyLogs, true), [courses, studyLogs]);
+  const gpa = calculateGpa(courses);
+  const totalStudyHours = useMemo(() => computeUnifiedStudyHours(courses, studyLogs), [courses, studyLogs]);
   const pendingAssignments = useMemo(
     () =>
       [...assignments]
@@ -1237,8 +1365,8 @@ function Overview({
             bạn đang tiến bộ.
           </h2>
           <p>Hãy chọn một việc nhỏ và bắt đầu ngay hôm nay.</p>
-          <button className="banner-button" onClick={() => onNavigate('projects')}>
-            Xem kế hoạch của bạn <ArrowRight size={16} />
+          <button className="banner-button" onClick={() => onNavigate('work')}>
+            Xem công việc <ArrowRight size={16} />
           </button>
         </div>
         <div className="banner-art">
@@ -1334,10 +1462,7 @@ function Overview({
             <span>
               <Clock3 size={15} /> Giờ học tích lũy
             </span>
-            <strong>
-              {unifiedStudy.totalHours}
-              <small> / {unifiedStudy.targetHours} giờ</small>
-            </strong>
+            <strong>{totalStudyHours} <small>giờ</small></strong>
           </div>
           <button className="focus-link" onClick={() => onNavigate('study')}>
             Mở không gian học tập <ArrowRight size={15} />
@@ -1372,73 +1497,51 @@ function Overview({
           trend={<span className="trend-neutral">+1</span>}
         />
         <StatCard
-          label="Số dư hạt giống"
-          value={(personal?.coins ?? 0).toLocaleString('vi-VN')}
-          detail="Sẵn sàng phát triển"
-          icon={Coins}
+          label="GPA hiện tại"
+          value={gpa.value === null ? '—' : `${gpa.value.toLocaleString('vi-VN', { maximumFractionDigits: 2 })} / 4`}
+          detail={gpa.credits > 0 ? `${gpa.credits} tín chỉ có điểm` : 'Chưa có điểm để tính GPA'}
+          icon={BarChart3}
           tone="blue"
-          trend={<Leaf size={14} />}
         />
       </div>
 
-      <div className="content-grid">
-        <section className="panel projects-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>Dự án của bạn</h3>
-              <p>Những điều bạn đang xây dựng</p>
-            </div>
-            <button className="text-button" onClick={() => onNavigate('projects')}>
-              Tất cả <ArrowRight size={15} />
-            </button>
+      <section className="panel projects-panel">
+        <div className="panel-heading">
+          <div>
+            <h3>Dự án của bạn</h3>
+            <p>Những điều bạn đang xây dựng</p>
           </div>
-          {loading && !projects.length ? (
-            <div className="skeleton-list" aria-busy="true">
-              <div className="skeleton-line" />
-              <div className="skeleton-line" />
-            </div>
-          ) : sortedProjects.length ? (
-            <div className="project-list">
-              {sortedProjects.slice(0, 4).map((project, i) => (
-                <ProjectRow
-                  key={project.id}
-                  project={project}
-                  tasks={tasksByProject[project.id] ?? []}
-                  index={i}
-                  onOpen={() => onNavigate('projects', { projectId: project.id })}
-                />
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={FolderKanban}
-              title="Chưa có dự án nào"
-              text="Tạo dự án đầu tiên để bắt đầu sắp xếp kế hoạch."
-              action="Tạo dự án"
-              onClick={() => onNavigate('projects')}
-            />
-          )}
-        </section>
-
-        <section className="quote-card">
-          <div className="quote-top">
-            <div className="quote-mark">“</div>
-            <span>GHI NHỚ</span>
+          <button className="text-button" onClick={() => onNavigate('projects')}>
+            Tất cả <ArrowRight size={15} />
+          </button>
+        </div>
+        {loading && !projects.length ? (
+          <div className="skeleton-list" aria-busy="true">
+            <div className="skeleton-line" />
+            <div className="skeleton-line" />
           </div>
-          <p>Thành công là tổng của những nỗ lực nhỏ được lặp lại mỗi ngày.</p>
-          <div className="quote-bottom">
-            <span>ROBERT COLLIER</span>
-            <div>
-              <i />
-              <i />
-              <i />
-            </div>
+        ) : sortedProjects.length ? (
+          <div className="project-list">
+            {sortedProjects.slice(0, 4).map((project, i) => (
+              <ProjectRow
+                key={project.id}
+                project={project}
+                tasks={tasksByProject[project.id] ?? []}
+                index={i}
+                onOpen={() => onNavigate('projects', { projectId: project.id })}
+              />
+            ))}
           </div>
-          <div className="quote-plant">
-            <Leaf size={74} />
-          </div>
-        </section>
-      </div>
+        ) : (
+          <EmptyState
+            icon={FolderKanban}
+            title="Chưa có dự án nào"
+            text="Tạo dự án đầu tiên để bắt đầu sắp xếp kế hoạch."
+            action="Tạo dự án"
+            onClick={() => onNavigate('projects')}
+          />
+        )}
+      </section>
     </>
   );
 }
@@ -1456,7 +1559,7 @@ function StatCard({
   detail: string;
   icon: typeof Target;
   tone: string;
-  trend: React.ReactNode;
+  trend?: React.ReactNode;
 }) {
   return (
     <div className="stat-card">
@@ -1467,7 +1570,7 @@ function StatCard({
       <strong className="stat-value">{value}</strong>
       <div className="stat-foot">
         <span>{detail}</span>
-        <span className={`stat-trend ${tone}`}>{trend}</span>
+        {trend && <span className={`stat-trend ${tone}`}>{trend}</span>}
       </div>
     </div>
   );
@@ -1482,12 +1585,16 @@ function ProjectRow({
   project: Project;
   tasks: ProjectTask[];
   index: number;
-  onOpen?: () => void;
+  onOpen: () => void;
 }) {
   const completed = tasks.filter((t) => t.isDone || t.status === 'done').length;
   const displayedProgress = tasks.length ? Math.round((completed / tasks.length) * 100) : Math.round(project.progress ?? 0);
   return (
-    <div className="project-row" onClick={onOpen} style={onOpen ? { cursor: 'pointer' } : undefined}>
+    <a className="project-row overview-project-link" href={buildUrl('projects', { projectId: project.id })} onClick={(event) => {
+      if (event.button !== 0 || event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return;
+      event.preventDefault();
+      onOpen();
+    }}>
       <div className={`project-symbol project-symbol-${index % 3}`}>
         <Compass size={18} />
       </div>
@@ -1517,7 +1624,7 @@ function ProjectRow({
           <span style={{ width: `${displayedProgress}%` }} />
         </div>
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -1574,282 +1681,5 @@ function EmptyState({
         </button>
       )}
     </div>
-  );
-}
-
-const seedOptions = [
-  { id: 'tomato', label: '🍅 Cà chua (Tập trung ngắn)' },
-  { id: 'sunflower', label: '🌻 Hướng dương (Năng lượng tích cực)' },
-  { id: 'succulent', label: '🌵 Sen đá (Bền bỉ mỗi ngày)' },
-  { id: 'rose', label: '🌹 Hoa hồng (Chăm chút mục tiêu)' },
-  { id: 'oak', label: '🌳 Cây sồi (Dự án dài hạn)' },
-];
-
-function PersonalPage({
-  personal,
-  onRefresh,
-  onNotice,
-}: {
-  personal: PersonalState | null;
-  onRefresh: () => Promise<void>;
-  onNotice: (input: NoticeInput) => void;
-}) {
-  const [amount, setAmount] = useState('25');
-  const [busy, setBusy] = useState(false);
-  const [selectedSeed, setSelectedSeed] = useState(personal?.selectedSeed || 'tomato');
-  const [milestoneNote, setMilestoneNote] = useState('');
-  const [stateBusy, setStateBusy] = useState(false);
-
-  useEffect(() => {
-    if (personal?.selectedSeed) setSelectedSeed(personal.selectedSeed);
-  }, [personal?.selectedSeed]);
-
-  const executeSpend = async () => {
-    if (busy) return;
-    const num = Number(amount);
-    if (!Number.isInteger(num) || num <= 0 || num > 1_000_000) {
-      onNotice({ message: 'Số hạt giống cần là số nguyên dương từ 1 đến 1.000.000.', type: 'error' });
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await api<{ coins: number }>('/personal/coins/spend', {
-        method: 'POST',
-        body: JSON.stringify({ amount: num }),
-      });
-      await onRefresh().catch(() => undefined);
-      onNotice({
-        message: `Đã sử dụng hạt giống. Số dư còn ${result.coins.toLocaleString('vi-VN')}.`,
-        type: 'success',
-      });
-    } catch (err) {
-      onNotice({
-        message: err instanceof Error ? err.message : 'Không thể sử dụng hạt giống.',
-        type: 'error',
-        retry: () => void executeSpend(),
-        retryLabel: 'Thử lại',
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const spend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await executeSpend();
-  };
-
-  const executeSaveGardenState = async () => {
-    if (!personal || stateBusy) return;
-    setStateBusy(true);
-    try {
-      const existingHistory = Array.isArray(personal.history) ? (personal.history as PersonalHistoryEntry[]) : [];
-      const newEntry: PersonalHistoryEntry | null = milestoneNote.trim()
-        ? {
-            id: `${Date.now()}`,
-            action: `Đổi giống cây: ${seedOptions.find((s) => s.id === selectedSeed)?.label ?? selectedSeed}`,
-            detail: milestoneNote.trim(),
-            date: new Date().toISOString().slice(0, 10),
-          }
-        : null;
-      const nextHistory = newEntry ? [newEntry, ...existingHistory].slice(0, 30) : existingHistory;
-      const nextXP = milestoneNote.trim() ? (personal.growthXP ?? 0) + 15 : personal.growthXP ?? 0;
-
-      await updatePersonalState({
-        selectedSeed,
-        growthXP: nextXP,
-        history: nextHistory,
-      });
-      setMilestoneNote('');
-      await onRefresh().catch(() => undefined);
-      onNotice({
-        message: newEntry
-          ? 'Đã lưu giống cây và ghi nhận cột mốc mới (+15 XP).'
-          : 'Đã cập nhật loại hạt giống đang trồng.',
-        type: 'success',
-      });
-    } catch (err) {
-      onNotice({
-        message: err instanceof Error ? err.message : 'Không thể cập nhật trạng thái khu vườn.',
-        type: 'error',
-        retry: () => void executeSaveGardenState(),
-        retryLabel: 'Thử lưu lại',
-      });
-    } finally {
-      setStateBusy(false);
-    }
-  };
-
-  const saveGardenState = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await executeSaveGardenState();
-  };
-
-  const historyList = useMemo(() => {
-    if (!Array.isArray(personal?.history)) return [];
-    return personal.history.filter(
-      (item): item is PersonalHistoryEntry =>
-        Boolean(item && typeof item === 'object' && 'action' in item),
-    );
-  }, [personal?.history]);
-
-  return (
-    <>
-      <PageHeading
-        eyebrow="CHĂM SÓC BẢN THÂN"
-        title="Nhịp sống của bạn"
-        subtitle="Những thói quen nhỏ tạo nên thay đổi lớn."
-        action={
-          <button className="soft-button" onClick={() => void onRefresh()}>
-            <TrendingUp size={16} /> Làm mới
-          </button>
-        }
-      />
-      <div className="personal-hero">
-        <div className="personal-hero-copy">
-          <div className="banner-kicker">
-            <Sprout size={15} /> VƯỜN PHÁT TRIỂN CỦA BẠN
-          </div>
-          <h2>
-            Chăm chút từng ngày,
-            <br />
-            nở hoa đúng lúc.
-          </h2>
-          <p>
-            Giống cây hiện tại:{' '}
-            <strong>{seedOptions.find((s) => s.id === (personal?.selectedSeed || 'tomato'))?.label ?? personal?.selectedSeed}</strong>
-          </p>
-          <div className="garden-level">
-            <span>CẤP {Math.floor((personal?.growthXP ?? 0) / 100) + 1}</span>
-            <div>
-              <i style={{ width: `${(personal?.growthXP ?? 0) % 100}%` }} />
-            </div>
-            <small>{(personal?.growthXP ?? 0) % 100}/100 XP</small>
-          </div>
-        </div>
-        <div className="garden-illustration">
-          <div className="garden-sun" />
-          <div className="garden-mound mound-one" />
-          <div className="garden-mound mound-two" />
-          <div className="garden-flower flower-one">✿</div>
-          <div className="garden-flower flower-two">✿</div>
-          <div className="garden-flower flower-three">✿</div>
-          <div className="garden-leaf leaf-one">⌁</div>
-          <div className="garden-leaf leaf-two">⌁</div>
-        </div>
-      </div>
-
-      <div className="personal-stats">
-        <div className="personal-stat panel">
-          <div className="personal-stat-icon amber">
-            <Zap size={19} />
-          </div>
-          <span>Chuỗi ngày liên tiếp</span>
-          <strong>
-            {personal?.streak ?? 0}
-            <small> ngày</small>
-          </strong>
-          <p>Mỗi lần quay lại đều có ý nghĩa.</p>
-        </div>
-        <div className="personal-stat panel">
-          <div className="personal-stat-icon green">
-            <Coins size={19} />
-          </div>
-          <span>Hạt giống khả dụng</span>
-          <strong>{(personal?.coins ?? 0).toLocaleString('vi-VN')}</strong>
-          <p>Dùng để nuôi dưỡng khu vườn.</p>
-        </div>
-        <div className="personal-stat panel">
-          <div className="personal-stat-icon violet">
-            <Sparkles size={19} />
-          </div>
-          <span>Kinh nghiệm tích lũy</span>
-          <strong>
-            {personal?.growthXP ?? 0}
-            <small> XP</small>
-          </strong>
-          <p>Được tạo nên từ những bước nhỏ.</p>
-        </div>
-      </div>
-
-      <div className="personal-panels-grid">
-        <section className="panel spend-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>Nuôi dưỡng khu vườn</h3>
-              <p>Sử dụng hạt giống để ghi nhận một cột mốc của bạn.</p>
-            </div>
-            <div className="spend-icon">
-              <Leaf size={19} />
-            </div>
-          </div>
-          <form className="spend-form" onSubmit={(e) => void spend(e)}>
-            <label>
-              Số hạt giống
-              <input
-                type="number"
-                min="1"
-                max="1000000"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                required
-              />
-            </label>
-            <button className="primary-button" disabled={busy}>
-              <Sprout size={17} />
-              {busy ? 'Đang chăm sóc…' : 'Gieo hạt giống'}
-            </button>
-          </form>
-        </section>
-
-        <section className="panel garden-config-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>Chăm sóc & Chọn giống cây</h3>
-              <p>Chọn loại hạt giống đồng hành và lưu nhật ký thói quen (+15 XP).</p>
-            </div>
-            <div className="spend-icon">
-              <Sprout size={19} />
-            </div>
-          </div>
-          <form className="garden-config-form" onSubmit={(e) => void saveGardenState(e)}>
-            <label>
-              Loại hạt giống đang trồng
-              <select value={selectedSeed} onChange={(e) => setSelectedSeed(e.target.value)}>
-                {seedOptions.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Ghi nhận thói quen / cột mốc hôm nay (tùy chọn)
-              <input
-                value={milestoneNote}
-                onChange={(e) => setMilestoneNote(e.target.value)}
-                maxLength={200}
-                placeholder="Ví dụ: Hoàn thành 2 giờ tự học thuật toán"
-              />
-            </label>
-            <button className="primary-button" disabled={stateBusy}>
-              <Check size={16} />
-              {stateBusy ? 'Đang lưu…' : 'Lưu trạng thái vườn'}
-            </button>
-          </form>
-          {historyList.length > 0 && (
-            <div className="personal-history-list">
-              <strong>Nhật ký phát triển gần đây</strong>
-              {historyList.slice(0, 4).map((entry) => (
-                <div className="personal-history-item" key={entry.id}>
-                  <span>{entry.date}</span>
-                  <strong>{entry.detail || entry.action}</strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-    </>
   );
 }

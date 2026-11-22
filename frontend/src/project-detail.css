@@ -1,0 +1,125 @@
+.project-list-card { position: relative; }
+.project-card-link { display: inline-flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
+.project-card-link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.project-card-link:focus-visible::after { outline: 2px solid var(--green); outline-offset: 3px; }
+.project-card-link svg { flex-shrink: 0; color: var(--text-secondary, var(--muted)); }
+.project-list-card .project-card-actions { position: relative; z-index: 1; }
+.project-list-card:hover { border-color: var(--green); }
+.project-card-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.overview-project-link { color: inherit; text-decoration: none; }
+.project-list-nav { margin-bottom: 16px; }
+.planning-pill[data-due='overdue'] { color: #9b3543; background: #fae8ec; }
+.planning-pill[data-due='soon'] { color: #80520b; background: #fff0d5; }
+:root[data-theme='dark'] .planning-pill[data-due='overdue'] { color: #ffc2c8; background: #522c34; }
+:root[data-theme='dark'] .planning-pill[data-due='soon'] { color: #f8d592; background: #4a3a20; }
+
+.project-detail { max-width: 1080px; margin-inline: auto; }
+.project-detail-header { display: grid; gap: 10px; }
+.project-detail-header h1 { margin: 0; overflow-wrap: anywhere; }
+.project-detail-header .planning-section-head { flex-wrap: nowrap; }
+.project-detail-header .project-back { width: fit-content; min-height: 42px; text-decoration: none; }
+.project-detail-description { margin: 0; max-width: 72ch; white-space: pre-line; overflow-wrap: anywhere; }
+.project-detail-meta, .project-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 13px; color: var(--text-secondary, var(--muted)); }
+.project-detail-meta span, .project-task-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.project-detail-nav { margin-block: 4px; }
+.project-detail-tasks { list-style: none; padding: 0; margin: 0; }
+.project-detail-tasks .project-task { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; padding-block: 12px; align-items: start; }
+.project-detail-tasks .task-copy { min-width: 0; overflow-wrap: anywhere; }
+.project-task-meta:empty { display: none; }
+.project-running-timer { font-weight: 600; }
+.project-task-actions { display: flex; align-items: center; gap: 4px; }
+.project-task-actions .icon-button { min-width: 34px; min-height: 34px; }
+.project-timeline-toggle { width: fit-content; }
+.project-section-empty { margin: 0; padding: 16px 0; }
+
+.project-task-editor, .project-documents { display: grid; gap: 14px; }
+.project-task-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.project-task-name { grid-column: 1 / -1; }
+.project-task-options { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.project-task-options > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.project-task-options > summary svg { vertical-align: text-bottom; }
+.project-task-options[open] > summary { margin-bottom: 9px; }
+.project-task-options p { margin: 0; }
+.project-task-filters { width: fit-content; max-width: 100%; }
+.project-dependencies { display: grid; gap: 8px; max-height: 180px; overflow: auto; }
+.project-dependencies label, .project-milestone { display: flex; align-items: center; gap: 7px; overflow-wrap: anywhere; }
+.project-milestone { min-height: 28px; }
+.project-dependencies input, .project-milestone input { width: auto; flex-shrink: 0; }
+.project-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.project-documents .form-error { white-space: pre-line; }
+.project-file-list, .project-timer-history { list-style: none; margin: 0; padding: 0; }
+.project-file-list li { padding: 12px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 9px; align-items: center; }
+.project-file-info { display: grid; gap: 3px; overflow-wrap: anywhere; }
+.project-file-info small { color: var(--text-secondary, var(--muted)); }
+.project-file-info .text-button { padding: 0; font-size: inherit; text-align: start; }
+
+.project-timer { display: grid; gap: 16px; }
+.project-watch { display: grid; justify-items: center; gap: 10px; padding: 18px 0; }
+.project-watch p { margin: 0; }
+.project-watch > strong { font-size: clamp(36px, 8vw, 64px); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.project-watch > span { margin-top: 8px; }
+.project-timer-history li { display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding: 10px 0; }
+.project-timer-entry { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.project-timer-entry span { font-weight: 600; }
+.course-workspace-header { margin-bottom: 8px; gap: 8px; }
+.course-workspace-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.course-workspace-title h1 { font-size: clamp(23px, 4vw, 32px); line-height: 1.2; }
+.course-workspace-title .project-detail-meta { margin-top: 6px; }
+.course-workspace-actions { display: flex; gap: 8px; align-items: center; }
+.course-overview-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 18px; margin: 0; max-width: 840px; }
+.course-overview-metrics > div { min-width: 0; padding: 6px 0 0; border-top: 1px solid var(--plan-border); }
+.course-overview-metrics dt { color: var(--plan-muted); font-size: 12px; line-height: 1.35; }
+.course-overview-metrics dd { margin: 3px 0 0; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.course-overview-metrics small { display: inline-block; margin-inline-start: 6px; color: var(--plan-muted); font-size: 11px; font-weight: 600; }
+.course-overview-metrics .course-assessment-control { font-size: 12px; font-weight: 500; color: var(--plan-muted); }
+.course-overview-metrics .course-time-source { font-size: 11px; font-weight: 500; color: var(--plan-muted); }
+.course-assessment-control label { display: flex; width: fit-content; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.course-assessment-control input, .course-grade-row input,
+.course-grade-target input {
+  box-sizing: border-box; min-width: 0; min-height: 34px; padding: 4px 8px;
+  border: 1px solid var(--plan-border); border-radius: 7px;
+  background: var(--plan-surface); color: var(--plan-text); font: inherit;
+}
+.course-assessment-control input { width: 64px; font-size: 14px; }
+.course-assessment-control input[aria-label='Số buổi nghỉ'] { width: 90px; }
+.course-assessment-control input:focus-visible, .course-grade-row input:focus-visible,
+.course-grade-target input:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+.course-assessment-control .form-error { display: block; margin-top: 4px; }
+.course-grade-toggle { display: inline-flex; align-items: center; gap: 3px; min-height: 26px; padding: 0; border: 0; background: none; color: var(--plan-accent); font: inherit; font-weight: 700; }
+.course-grade-toggle:hover { text-decoration: underline; }
+.course-grade-toggle[aria-expanded='true'] svg { transform: rotate(180deg); }
+.course-grade-panel:not([hidden]) { display: grid; gap: 8px; max-width: 560px; padding-block: 6px; }
+.course-grade-panel > .course-assessment-control { color: var(--plan-muted); font-size: 12px; }
+.course-grade-panel-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.course-grade-panel-tools .soft-button { min-height: 34px; padding-block: 4px; }
+.course-grade-editor { display: grid; gap: 5px; }
+.course-grade-row { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 8px; }
+.course-grade-row input { width: 100%; font-size: 14px; }
+.course-grade-row input:focus-visible { outline-offset: -1px; }
+.course-grade-head, .course-grade-actions { font-size: 12px; color: var(--plan-muted); }
+.course-grade-rows { display: grid; gap: 6px; max-height: 14rem; overflow-y: auto; }
+.course-grade-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.course-grade-actions .soft-button { min-height: 34px; padding-block: 4px; }
+.course-grade-editor .form-error { margin: 0; }
+.course-grade-target { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; max-width: 560px; padding-top: 6px; border-top: 1px solid var(--plan-border); }
+.course-grade-target label { display: flex; align-items: center; gap: 6px; color: var(--plan-muted); font-size: 12px; }
+.course-grade-target input { width: 68px; font-size: 14px; }
+.course-grade-target p { flex: 1 1 155px; min-width: 0; margin: 0; font-size: 13px; font-weight: 600; }
+.course-schedule-pane { display: grid; gap: 12px; }
+.course-schedule-pane .add-session-button { justify-self: start; }
+.course-workspace-link { color: inherit; text-decoration: none; }
+.course-workspace-link:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
+.course-modal-editor { display: grid; gap: 14px; margin: 0; padding: 0; }
+.course-modal-editor .study-form-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); }
+.course-modal-editor .project-dependencies input { width: auto; }
+
+@media (max-width: 540px) {
+  .course-overview-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .course-workspace-tabs .study-tab-btn { padding-inline: 8px; }
+  .course-assignments-panel .panel-heading { flex-wrap: wrap; gap: 10px; }
+  .course-assignments-panel .panel-heading > div:first-child { flex: 1 0 100%; }
+  .course-assignments-panel .panel-heading-tools { flex: 1; justify-content: flex-start; }
+  .project-detail-tasks .project-task { grid-template-columns: auto minmax(0, 1fr); }
+  .project-task-actions { grid-column: 2; }
+  .project-task-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -38,9 +38,13 @@ export interface Project {
   updatedAt: string;
 }
 
+export type TaskCategory = 'employment' | 'personal';
+
 export interface ProjectTask {
   id: string;
-  projectId: string;
+  projectId: string | null;
+  category: TaskCategory | null;
+  fixedSlot: CalendarTime | null;
   title: string;
   priority: string;
   subtasksDone: number;
@@ -49,6 +53,7 @@ export interface ProjectTask {
   assignee: string;
   status: string;
   isDone: boolean;
+  completedAt: string | null;
   estimate: string;
   actual: string;
   startDay: number;
@@ -61,6 +66,12 @@ export interface ProjectTask {
   updatedAt: string;
 }
 
+export interface CourseGradeComponent {
+  name: string;
+  score10: number | null;
+  weight: number;
+}
+
 export interface Course {
   id: string;
   name: string;
@@ -71,11 +82,12 @@ export interface Course {
   progress: number;
   score10: number | null;
   grade: string;
+  gradeComponents?: CourseGradeComponent[];
   attendance: number;
-  studyHours: number;
-  aimStudyHours: number;
+  absences?: number | null;
+  trackedSeconds?: number;
   color: string;
-  status: 'Active' | 'Archived';
+  status: 'Active' | 'Completed';
 }
 
 export interface CourseSession {
@@ -108,6 +120,7 @@ export interface Assignment {
   priority: 'High' | 'Medium' | 'Low' | string;
   courseId: string | null;
   estimatedTime?: string;
+  dependencies?: string[];
 }
 
 export interface Exam {
@@ -147,33 +160,64 @@ export interface StudySummary {
   semester?: string | null;
   activeCourses: number;
   totalStudyHours: number;
-  targetStudyHours: number;
   pendingAssignments: number;
   assignments: number;
 }
 
-export interface PersonalHistoryEntry {
-  id: string;
-  action: string;
-  detail: string;
-  date: string;
-}
-
-export interface PersonalShopItem {
-  id: string;
-  name: string;
-  cost: number;
-  unlocked: boolean;
-}
-
 export interface PersonalState {
-  coins: number;
-  growthXP: number;
   streak: number;
   lastLoginDate: string;
-  selectedSeed: string;
-  shopItems: unknown[];
-  history: unknown[];
+}
+
+export interface AvailabilityWindow {
+  weekday: number;
+  start: string;
+  end: string;
+}
+
+export type StudyPreference = 'more' | 'less';
+
+export interface PlanningSettings {
+  availability: AvailabilityWindow[] | null;
+  feedback: { courseId: string; preference: StudyPreference }[];
+}
+
+export interface CalendarTime {
+  date: string;
+  start: number;
+  end: number;
+}
+
+export interface CalendarTaskInput extends CalendarTime {
+  taskId: string;
+}
+
+export interface CalendarTaskBlock extends CalendarTaskInput {
+  id: string;
+}
+
+export interface ProjectFile {
+  id: string;
+  taskId: string | null;
+  name: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface ProjectTimerSession {
+  id: string;
+  taskId: string | null;
+  taskTitle: string | null;
+  startedAt: string;
+  stoppedAt: string | null;
+  durationSeconds: number | null;
+}
+
+export interface ProjectTimerState {
+  active: ProjectTimerSession | null;
+  sessions: ProjectTimerSession[];
+  seconds: number;
+  taskSeconds: Record<string, number>;
 }
 
 const TOKEN_KEY = 'lifeos_token';
@@ -182,15 +226,14 @@ export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (token: string | null) =>
   token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY);
 
-export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function apiResponse(path: string, options: RequestInit = {}): Promise<Response> {
   const headers = new Headers(options.headers);
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const token = getToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(`${API_BASE_URL}/api${path}`, { ...options, headers });
-  if (response.status === 204) return undefined as T;
-  const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
   if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
     if (response.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
       setToken(null);
       if (typeof window !== 'undefined') {
@@ -199,7 +242,29 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     }
     throw new Error(payload?.error?.message || 'Không thể kết nối tới máy chủ.');
   }
-  return payload as T;
+  return response;
+}
+
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await apiResponse(path, options);
+  if (response.status === 204) return undefined as T;
+  return await response.json().catch(() => null) as T;
+}
+
+export const uploadWorkspaceFile = (path: string, file: File) => api<ProjectFile>(`${path}/files?name=${encodeURIComponent(file.name)}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+});
+
+export async function downloadProjectFile(workspacePath: string, file: ProjectFile) {
+  const response = await apiResponse(`${workspacePath}/files/${file.id}`);
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = file.name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 export function signIn(email: string, password: string, mode: 'login' | 'register', fullName?: string) {
@@ -213,14 +278,5 @@ export function changePassword(currentPassword: string, newPassword: string) {
   return api<void>('/profile/password', {
     method: 'PUT',
     body: JSON.stringify({ currentPassword, newPassword }),
-  });
-}
-
-export function updatePersonalState(
-  patch: Partial<Pick<PersonalState, 'coins' | 'growthXP' | 'streak' | 'selectedSeed' | 'shopItems' | 'history'>>,
-) {
-  return api<void>('/personal/state', {
-    method: 'PUT',
-    body: JSON.stringify(patch),
   });
 }

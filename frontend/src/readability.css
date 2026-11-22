@@ -60,3 +60,10 @@
 :root[data-theme='dark'] {
   --dark-muted: #bec9bd;
 }
+@media (max-width: 480px) {
+  .topbar .date-chip { display: none; }
+  .topbar-left { min-width: 0; }
+  .topbar-right { flex-shrink: 0; }
+  .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .breadcrumb { min-width: 0; }
+}

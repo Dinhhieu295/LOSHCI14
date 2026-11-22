@@ -43,9 +43,19 @@ export interface Project {
 export type ProjectInput = Omit<Project, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type ProjectPatch = Partial<ProjectInput>;
 
+export interface CalendarTime {
+  date: string;
+  start: number;
+  end: number;
+}
+
+export type TaskCategory = 'employment' | 'personal';
+
 export interface Task {
   id: string;
-  projectId: string;
+  projectId: string | null;
+  category: TaskCategory | null;
+  fixedSlot: CalendarTime | null;
   title: string;
   priority: string;
   subtasksDone: number;
@@ -54,6 +64,7 @@ export interface Task {
   assignee: string;
   status: string;
   isDone: boolean;
+  completedAt: string | null;
   estimate: string;
   actual: string;
   startDay: number;
@@ -66,7 +77,8 @@ export interface Task {
   updatedAt: string;
 }
 
-export type TaskInput = Omit<Task, 'id' | 'projectId' | 'createdAt' | 'updatedAt'>;
+export type TaskInput = Omit<Task, 'id' | 'projectId' | 'createdAt' | 'updatedAt' | 'completedAt' | 'fixedSlot' | 'category'> &
+  { fixedSlot?: CalendarTime | null; category?: TaskCategory };
 export type TaskPatch = Partial<TaskInput>;
 
 export type StudyResourceName = 'courses' | 'assignments' | 'exams' | 'notes' | 'schedule' | 'course-sessions' | 'study-logs';
@@ -83,15 +95,15 @@ export interface StudySummary {
 
 export interface PersonalState {
   userId: string;
-  coins: number;
-  growthXP: number;
   streak: number;
   lastLoginDate: string;
-  selectedSeed: string;
-  shopItems: unknown[];
-  history: unknown[];
   updatedAt: string;
 }
 
-export type PersonalStatePatch = Partial<Pick<PersonalState,
-  'coins' | 'growthXP' | 'streak' | 'selectedSeed' | 'shopItems' | 'history'>>;
+export interface AvailabilityWindow {
+  weekday: number;
+  start: string;
+  end: string;
+}
+
+export type StudyPreference = 'more' | 'less';

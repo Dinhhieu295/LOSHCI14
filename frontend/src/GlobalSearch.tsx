@@ -180,7 +180,7 @@ export default function GlobalSearch({
         if (item.status === 'fulfilled') {
           const { project, tasks } = item.value;
           for (const task of tasks) {
-            if (normalize(`${task.title} ${task.assignee ?? ''}`).includes(term)) {
+            if (normalize(task.title).includes(term)) {
               taskResults.push({ kind: 'task', project, task });
             }
           }

@@ -4,19 +4,21 @@ import type { AppServices } from '../application/services/index.js';
 import { asyncHandler } from '../http/async-handler.js';
 import { requireAuth } from '../middleware/require-auth.js';
 
+export const profilePatch = z.object({
+  fullName: z.string().trim().min(1).max(120).optional(),
+  dob: z.iso.date().nullable().optional(),
+  avatarUrl: z.string().url().max(2048).nullable().optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  location: z.string().trim().max(120).nullable().optional(),
+  bio: z.string().trim().max(500).nullable().optional(),
+}).refine((value) => Object.keys(value).length > 0);
+
 export function createProfileRouter(services: AppServices) {
   const router = Router();
   router.use(requireAuth(services.auth));
   router.get('/', asyncHandler(async (req, res) => res.json(await services.profile.get(req.userId!))));
   router.patch('/', asyncHandler(async (req, res) => {
-    const input = z.object({
-      fullName: z.string().trim().min(1).max(120).optional(),
-      dob: z.iso.date().nullable().optional(),
-      avatarUrl: z.string().url().max(2048).nullable().optional(),
-      phone: z.string().trim().max(40).nullable().optional(),
-      location: z.string().trim().max(120).nullable().optional(),
-      bio: z.string().trim().max(500).nullable().optional(),
-    }).refine((v) => Object.keys(v).length > 0).parse(req.body);
+    const input = profilePatch.parse(req.body);
     res.json(await services.profile.update(req.userId!, input));
   }));
   router.put('/password', asyncHandler(async (req, res) => {

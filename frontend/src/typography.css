@@ -31,7 +31,7 @@ body {
 .project-row-main > span, .assignment-copy span, .course-main span { font-size: 11px; }
 .progress-label { font-size: 11px; }
 .project-status, .project-card-foot, .assignment-date { font-size: 11px; }
-.project-card-tag, .quote-top, .quote-bottom { font-size: 10px; }
+.project-card-tag { font-size: 10px; }
 .project-card h3 { font-size: 18px; }
 .project-card > p { font-size: 12px; line-height: 1.6; }
 .count-pill { font-size: 11px; }

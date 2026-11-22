@@ -1,6 +1,6 @@
 import type {
-  AccountUser, PersonalState, PersonalStatePatch, Project, ProjectInput, ProjectPatch,
-  SessionRecord, StudyItem, StudyResourceName, Task, TaskInput, TaskPatch,
+  AccountUser, AvailabilityWindow, PersonalState, Project, ProjectInput, ProjectPatch,
+  SessionRecord, StudyItem, StudyPreference, StudyResourceName, Task, TaskInput, TaskPatch,
 } from '../models.js';
 
 export interface AccountRepository {
@@ -15,16 +15,18 @@ export interface AccountRepository {
   deleteOtherSessions(userId: string, keepSessionId: string): Promise<void>;
 }
 
+export type TaskScope = { projectId: string } | { personalUserId: string };
+
 export interface ProjectRepository {
   listProjects(userId: string): Promise<Project[]>;
   findProject(userId: string, projectId: string): Promise<Project | undefined>;
   createProject(userId: string, input: ProjectInput, id: string, now: string): Promise<Project>;
   updateProject(userId: string, projectId: string, patch: ProjectPatch, now: string): Promise<Project | undefined>;
   deleteProject(userId: string, projectId: string): Promise<boolean>;
-  listTasks(projectId: string): Promise<Task[]>;
-  createTask(projectId: string, input: TaskInput, id: string, now: string): Promise<Task>;
-  updateTask(projectId: string, taskId: string, patch: TaskPatch, now: string): Promise<Task | undefined>;
-  deleteTask(projectId: string, taskId: string): Promise<boolean>;
+  listTasks(scope: TaskScope): Promise<Task[]>;
+  createTask(scope: TaskScope, input: TaskInput, id: string, now: string): Promise<Task>;
+  updateTask(scope: TaskScope, taskId: string, patch: TaskPatch, now: string): Promise<Task | undefined>;
+  deleteTask(scope: TaskScope, taskId: string): Promise<boolean>;
 }
 
 export interface StudyRepository {
@@ -37,8 +39,14 @@ export interface StudyRepository {
 
 export interface PersonalRepository {
   findPersonalState(userId: string): Promise<PersonalState | undefined>;
-  savePersonalState(userId: string, state: PersonalState, patch?: PersonalStatePatch): Promise<PersonalState>;
-  debitCoins(userId: string, amount: number, now: string): Promise<number | undefined>;
+  savePersonalState(userId: string, state: PersonalState): Promise<PersonalState>;
 }
 
-export interface LifeOsRepositories extends AccountRepository, ProjectRepository, StudyRepository, PersonalRepository {}
+export interface PlanningRepository {
+  findAvailability(userId: string): Promise<AvailabilityWindow[] | null>;
+  saveAvailability(userId: string, windows: AvailabilityWindow[]): Promise<void>;
+  listStudyFeedback(userId: string): Promise<{ courseId: string; preference: StudyPreference }[]>;
+  saveStudyFeedback(userId: string, courseId: string, preference: StudyPreference | null): Promise<boolean>;
+}
+
+export interface LifeOsRepositories extends AccountRepository, ProjectRepository, StudyRepository, PersonalRepository, PlanningRepository {}

@@ -8,7 +8,7 @@ const makeStamp = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}
 function dateInDays(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 test.describe('Kiểm thử chi tiết bổ sung theo KICH-BAN-KIEM-THU.md', () => {
@@ -100,11 +100,17 @@ test.describe('Kiểm thử chi tiết bổ sung theo KICH-BAN-KIEM-THU.md', () 
     await page.getByPlaceholder('Tên dự án').fill(`Dự án Remind ${stamp}`);
     await page.locator('form.create-project').getByRole('button', { name: 'Tạo dự án' }).click();
 
-    const proj = page.locator('.project-card').filter({ hasText: `Dự án Remind ${stamp}` });
-    await proj.getByRole('button', { name: 'Quản lý task' }).click();
-    await proj.getByPlaceholder('Ví dụ: Hoàn thiện bản thiết kế').fill('Task Hạn Ngày Mai');
-    await proj.locator('input[type="date"]').first().fill(dateInDays(1));
-    await proj.getByRole('button', { name: 'Thêm task' }).click();
+    await page.getByRole('link', { name: `Dự án Remind ${stamp}`, exact: true }).click();
+    await page.getByRole('button', { name: 'Thêm task' }).click();
+    const form = page.getByRole('dialog', { name: 'Thêm task' });
+    await form.getByLabel('Tên task').fill('Task Hạn Ngày Mai');
+    await form.getByLabel('Ngày nộp').fill(dateInDays(1));
+    await form.getByRole('button', { name: 'Tạo task' }).click();
+    await expect(form).toHaveCount(0);
+    await page.addInitScript(() => {
+      Object.keys(localStorage).filter((key) => key.startsWith('lifeos:deadline-reminder:'))
+        .forEach((key) => localStorage.removeItem(key));
+    });
 
     // Reload trang để kích hoạt effect nhắc hạn
     await page.reload();
