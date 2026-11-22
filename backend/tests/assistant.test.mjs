@@ -7,7 +7,7 @@ import { ApplicationError } from '../src/application/errors.ts';
 import { errorHandler } from '../src/middleware/error-handler.ts';
 import { createAssistantActions } from '../src/routes/assistant-actions.ts';
 import { createAssistantRouter } from '../src/routes/assistant.ts';
-import { messageWithFile, modelText, sendModel } from '../src/routes/assistant-provider.ts';
+import { GroqRateLimitError, messageWithFile, modelText, sendModel } from '../src/routes/assistant-provider.ts';
 
 const userA = randomUUID();
 const userB = randomUUID();
@@ -218,6 +218,49 @@ test('GroqCloud reports its retry interval when the free plan limit is reached',
   await assert.rejects(sendModel(groqConnection, [], 'LifeOS', [], AbortSignal.timeout(2000)), {
     code: 'ASSISTANT_PROVIDER_RATE_LIMIT', message: /GroqCloud.*7 giây/,
   });
+});
+
+test('assistant retries the same Groq image request once after a short rate limit', async () => {
+  const auth = { authenticate: async (token) => sessions.get(token) };
+  const tools = createAssistantActions({}, {});
+  const calls = new Map();
+  const fakeModel = async (input) => {
+    const text = input[0].content[0].text;
+    const previous = calls.get(text);
+    if (!previous) calls.set(text, { count: 1, input });
+    else {
+      assert.equal(input, previous.input);
+      previous.count += 1;
+    }
+    if (!previous || text === 'Vẫn giới hạn') {
+      const seconds = text === 'Chờ lâu' ? '60' : '1';
+      throw new GroqRateLimitError(new Response(null, { status: 429, headers: { 'Retry-After': seconds } }));
+    }
+    return [{ type: 'message', content: [{ type: 'output_text', text: 'Đã đọc ảnh.' }] }];
+  };
+  const app = express().use(createAssistantRouter(auth, tools, fakeModel)).use(errorHandler);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const chat = (content) => fetch(`http://127.0.0.1:${server.address().port}/chat`, {
+      method: 'POST', headers: { Authorization: 'Bearer a', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content }],
+        file: { name: 'lich.jpg', mimeType: 'image/jpeg', data: '/9j/' } }),
+    });
+    const success = await chat('Đọc ảnh lịch học');
+    assert.equal(success.status, 200);
+    assert.equal((await success.json()).reply, 'Đã đọc ảnh.');
+    assert.equal(calls.get('Đọc ảnh lịch học').count, 2);
+    const limited = await chat('Vẫn giới hạn');
+    assert.equal(limited.status, 503);
+    assert.equal(calls.get('Vẫn giới hạn').count, 2);
+    const longWait = await chat('Chờ lâu');
+    assert.equal(longWait.status, 503);
+    assert.match((await longWait.json()).error.message, /60 giây/);
+    assert.equal(calls.get('Chờ lâu').count, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('OpenAI distinguishes exhausted credits from temporary request limits', async (t) => {

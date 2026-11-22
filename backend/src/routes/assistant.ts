@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { json, raw, Router } from 'express';
 import { z } from 'zod';
 import { ApplicationError } from '../application/errors.js';
@@ -9,7 +10,7 @@ import { HttpError } from '../http/errors.js';
 import type { AiConnection, AssistantStore } from '../infrastructure/repositories/assistant-store.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import type { createAssistantActions } from './assistant-actions.js';
-import { defaultGroqModel, messageWithFile, modelText, sendModel, type AssistantFile, type ModelItem } from './assistant-provider.js';
+import { defaultGroqModel, GroqRateLimitError, messageWithFile, modelText, sendModel, type AssistantFile, type ModelItem } from './assistant-provider.js';
 
 type Actions = ReturnType<typeof createAssistantActions>;
 type Draft = Awaited<ReturnType<Actions['prepare']>>;
@@ -20,6 +21,8 @@ const scopeSchema = z.strictObject({ kind: z.enum(['course', 'project']), id: z.
 const messageSchema = z.strictObject({ role: z.enum(['user', 'assistant']), content: z.string().trim().min(1).max(4000) });
 const supportedFiles = ['application/pdf', 'image/png', 'image/jpeg'] as const;
 const fileLimit = 6 * 1024 * 1024;
+const chatTimeoutMs = 100_000;
+const maxGroqRetrySeconds = 45;
 
 const chatSchema = z.strictObject({
   messages: z.array(messageSchema).min(1).max(12),
@@ -187,11 +190,22 @@ ${actions.catalog}`;
       const input: ModelItem[] = conversation.slice(-12);
       if (attachment) input[input.length - 1] = messageWithFile(lastMessage.content, attachment);
       const drafts: Draft[] = [];
-      const timeout = AbortSignal.timeout(100_000);
+      const timeout = AbortSignal.timeout(chatTimeoutMs);
+      const deadline = performance.now() + chatTimeoutMs;
+      const requestReply = () => send ? send(input, instructions, actions.tools, timeout)
+        : sendModel(selectedConnection!, input, instructions, actions.tools, timeout);
+      let retriedGroq = false;
       let reply = '';
       for (let round = 0; round < 12; round += 1) {
-        const output = send ? await send(input, instructions, actions.tools, timeout)
-          : await sendModel(selectedConnection!, input, instructions, actions.tools, timeout);
+        const output = await requestReply().catch(async (error: unknown) => {
+          if (retriedGroq || !(error instanceof GroqRateLimitError) || res.destroyed) throw error;
+          const seconds = error.retryAfterSeconds;
+          if (!seconds || seconds > maxGroqRetrySeconds || performance.now() + seconds * 1000 + 10_000 > deadline) throw error;
+          retriedGroq = true;
+          await delay(seconds * 1000, undefined, { signal: timeout });
+          if (res.destroyed) throw error;
+          return requestReply();
+        });
         const calls = output.filter((item) => item.type === 'function_call');
         if (!calls.length) {
           reply = modelText(output);

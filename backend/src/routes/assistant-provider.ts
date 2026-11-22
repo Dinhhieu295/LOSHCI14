@@ -50,9 +50,23 @@ async function openAiLimitError(response: Response) {
   return new HttpError(503, 'OpenAI đang giới hạn lượt gọi hoặc đã hết hạn mức. Hãy kiểm tra Limits.', 'ASSISTANT_PROVIDER_LIMIT');
 }
 
-function retryAdvice(response: Response) {
+function retryAfterSeconds(response: Response) {
   const seconds = Math.ceil(Number(response.headers.get('retry-after')));
-  return Number.isFinite(seconds) && seconds > 0 ? `Hãy đợi ít nhất ${seconds} giây rồi thử lại.` : 'Hãy đợi một lúc rồi thử lại.';
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+}
+
+function retryAdvice(response: Response) {
+  const seconds = retryAfterSeconds(response);
+  return seconds ? `Hãy đợi ít nhất ${seconds} giây rồi thử lại.` : 'Hãy đợi một lúc rồi thử lại.';
+}
+
+export class GroqRateLimitError extends HttpError {
+  readonly retryAfterSeconds: number | undefined;
+
+  constructor(response: Response) {
+    super(503, `GroqCloud đã chạm hạn mức API. ${retryAdvice(response)}`, 'ASSISTANT_PROVIDER_RATE_LIMIT');
+    this.retryAfterSeconds = retryAfterSeconds(response);
+  }
 }
 
 async function requestModel(connection: AiConnection, url: string, payload: object, signal: AbortSignal) {
@@ -74,9 +88,7 @@ async function requestModel(connection: AiConnection, url: string, payload: obje
   });
   if (response.status === 429) {
     if (connection.provider === 'openai') throw await openAiLimitError(response);
-    if (connection.provider === 'groq') {
-      throw new HttpError(503, `GroqCloud đã chạm hạn mức API. ${retryAdvice(response)}`, 'ASSISTANT_PROVIDER_RATE_LIMIT');
-    }
+    if (connection.provider === 'groq') throw new GroqRateLimitError(response);
     throw new HttpError(503, 'Nhà cung cấp AI đang giới hạn lượt gọi hoặc đã hết hạn mức.', 'ASSISTANT_PROVIDER_LIMIT');
   }
   if (connection.provider === 'gemini' && response.status === 403) {
