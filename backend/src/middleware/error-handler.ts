@@ -5,6 +5,11 @@ import { HttpError } from '../http/errors.js';
 import { ApplicationError } from '../application/errors.js';
 
 export const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
+  if (error?.type === 'entity.parse.failed') {
+    response.status(400).json({ error: { code: 'INVALID_JSON', message: 'Nội dung JSON không hợp lệ.' } });
+    return;
+  }
+
   if (error?.type === 'entity.too.large') {
     response.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'Dữ liệu gửi lên vượt quá dung lượng cho phép.' } });
     return;
