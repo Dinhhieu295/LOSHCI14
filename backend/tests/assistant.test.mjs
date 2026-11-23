@@ -4,10 +4,10 @@ import { once } from 'node:events';
 import test from 'node:test';
 import express from 'express';
 import { ApplicationError } from '../src/application/errors.ts';
+import { createAssistantActions } from '../src/assistant/actions.ts';
+import { GroqRateLimitError, messageWithFile, modelText, sendModel } from '../src/assistant/provider.ts';
+import { createAssistantRouter } from '../src/assistant/router.ts';
 import { errorHandler } from '../src/middleware/error-handler.ts';
-import { createAssistantActions } from '../src/routes/assistant-actions.ts';
-import { createAssistantRouter } from '../src/routes/assistant.ts';
-import { GroqRateLimitError, messageWithFile, modelText, sendModel } from '../src/routes/assistant-provider.ts';
 
 const userA = randomUUID();
 const userB = randomUUID();
