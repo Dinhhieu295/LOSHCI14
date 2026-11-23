@@ -5,6 +5,7 @@ import test from 'node:test';
 import express from 'express';
 import { ApplicationError } from '../src/application/errors.ts';
 import { createAssistantActions } from '../src/assistant/actions.ts';
+import { formatUpcomingDeadlines } from '../src/assistant/deadlines.ts';
 import { GroqRateLimitError, messageWithFile, modelText, sendModel } from '../src/assistant/provider.ts';
 import { createAssistantRouter } from '../src/assistant/router.ts';
 import { errorHandler } from '../src/middleware/error-handler.ts';
@@ -20,6 +21,84 @@ const sessions = new Map([
 function modelCall(name, args, id) {
   return { type: 'function_call', name, arguments: JSON.stringify(args), call_id: id, id };
 }
+
+test('deadline summary includes today and the sixth following day in the user time zone', () => {
+  const window = { today: '2026-11-23', days: 7, timeZone: 'Asia/Ho_Chi_Minh' };
+  const result = formatUpcomingDeadlines(window, [
+    { title: 'Bài tập tối', deadline: '2026-11-22T17:30:00Z', status: 'In Progress' },
+    { title: 'Bài quá hạn', deadline: '2026-11-22' },
+    { title: 'Bài đã làm xong', deadline: '2026-11-24', status: 'Completed' },
+    { title: 'Bài ở ngoài khoảng', deadline: '2026-11-29T18:00:00Z' },
+  ], [
+    { title: 'Task cuối khoảng', projectTitle: 'Báo cáo nhóm', dueDate: '2026-11-29', status: 'todo' },
+    { title: 'Task đã hoàn thành', projectTitle: 'Báo cáo nhóm', dueDate: '2026-11-24', status: 'done' },
+  ], [
+    { title: 'Lấy sách', dueDate: '2026-11-25', category: 'personal' },
+    { title: 'Ca làm lặp', dueDate: '2026-11-24', category: 'employment' },
+    { title: 'Việc đã hoàn thành', dueDate: '2026-11-24', category: 'personal', isDone: true },
+  ]);
+  assert.match(result, /23\/11\/2026 đến hết ngày 29\/11\/2026, bạn có 3 mục/);
+  assert.deepEqual(result.trim().split('\n').filter((line) => line.startsWith('-')), [
+    '- 23/11/2026 lúc 00:30 · Bài tập tối (Bài tập)',
+    '- 25/11/2026 · Lấy sách (Việc cá nhân)',
+    '- 29/11/2026 · Task cuối khoảng (Dự án Báo cáo nhóm)',
+  ]);
+});
+
+test('the seven-day chat query reads all three categories for the signed-in account without calling a model', async () => {
+  const auth = { authenticate: async (token) => sessions.get(token) };
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short' }).format(new Date());
+  const projectId = randomUUID();
+  const services = {
+    study: { list: async (userId, resource) => {
+      assert.equal(resource, 'assignments');
+      return userId === userA ? [{ title: 'Nộp sơ đồ ERD', deadline: today }] : [];
+    } },
+    projects: {
+      list: async (userId) => userId === userA ? [{ id: projectId, title: 'Báo cáo nhóm' }] : [],
+      listTasks: async (userId, id) => {
+        assert.equal(userId, userA);
+        assert.equal(id, projectId);
+        return [{ title: 'Viết kết luận', dueDate: today }];
+      },
+      listPersonalTasks: async (userId) => userId === userA ? [{ title: 'Lấy sách', category: 'personal', dueDate: today }] : [],
+    },
+  };
+  let modelCalls = 0;
+  const fakeModel = async () => {
+    modelCalls++;
+    return [{ type: 'message', content: [{ type: 'output_text', text: 'Luồng trợ lý thông thường' }] }];
+  };
+  const app = express().use(createAssistantRouter(auth, createAssistantActions(services, {}), fakeModel)).use(errorHandler);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const chat = async (content, token) => {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/chat`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content }] }),
+      });
+      assert.equal(response.status, 200);
+      return response.json();
+    };
+    const summary = await chat('Tôi có deadline nào trong 7 ngày tới không?', 'a');
+    assert.match(summary.reply, /3 mục chưa hoàn thành/);
+    assert.match(summary.reply, /Nộp sơ đồ ERD/);
+    assert.match(summary.reply, /Viết kết luận/);
+    assert.match(summary.reply, /Lấy sách/);
+    assert.deepEqual(summary.changes, []);
+
+    const empty = await chat('Hãy kiểm tra bài tập, task dự án và công việc cá nhân chưa hoàn thành của tôi. Liệt kê những mục có hạn trong 7 ngày tới, kèm ngày hạn.', 'b');
+    assert.match(empty.reply, /không có bài tập, task dự án hoặc việc cá nhân/);
+    assert.doesNotMatch(empty.reply, /Nộp sơ đồ ERD|Viết kết luận|Lấy sách/);
+    assert.equal(modelCalls, 0);
+
+    await chat('Đổi deadline bài tập sang một ngày trong 7 ngày tới.', 'a');
+    assert.equal(modelCalls, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test('assistant confines tool calls to account data and applies a proposal only once after confirmation', async () => {
   const taskA = { id: randomUUID(), title: 'Đọc giáo trình' };

@@ -9,6 +9,7 @@ import { profilePatch } from '../routes/profile.js';
 import { pickPresentKeys, projectPatch, projectSchema, taskPatch, taskSchema } from '../routes/projects.js';
 import { studySchemas, validateSessionTimes } from '../routes/study.js';
 import { parsePersonalTask, personalTaskPatch, personalTaskSchema } from '../routes/tasks.js';
+import { deadlineWindowDays, formatUpcomingDeadlines } from './deadlines.js';
 
 type Row = Record<string, unknown>;
 type Operation = 'create' | 'update' | 'delete';
@@ -62,6 +63,15 @@ const defaultHours = Array.from({ length: 7 }, (_, day) => ({ weekday: day + 1, 
 const courseResources = new Set(['assignments', 'exams', 'notes', 'course-sessions', 'study-logs']);
 
 export function createAssistantActions(services: AppServices, calendar: TaskCalendarRepository) {
+  async function listProjectTasks(userId: string) {
+    const projects = await services.projects.list(userId);
+    const groups = await Promise.all(projects.map(async (project) => {
+      const tasks = await services.projects.listTasks(userId, project.id);
+      return tasks.map((task) => ({ ...task, projectId: project.id, projectTitle: project.title }));
+    }));
+    return groups.flat();
+  }
+
   const freeHours = async (userId: string) => (await services.planning.get(userId)).availability ?? defaultHours;
   async function checkSchedule(userId: string, blocks: TaskBlockInput[], ignoredId?: string) {
     const windows = await freeHours(userId);
@@ -104,16 +114,8 @@ export function createAssistantActions(services: AppServices, calendar: TaskCale
       },
     },
     'project-tasks': {
-      label: 'Công việc dự án', read: async ({ userId, projectId }) => {
-        if (projectId) return services.projects.listTasks(userId, projectId);
-        const projects = await services.projects.list(userId);
-        const results = [];
-        for (const project of projects) {
-          const tasks = await services.projects.listTasks(userId, project.id);
-          results.push(...tasks.map((task) => ({ ...task, projectId: project.id, projectTitle: project.title })));
-        }
-        return results;
-      },
+      label: 'Công việc dự án',
+      read: ({ userId, projectId }) => projectId ? services.projects.listTasks(userId, projectId) : listProjectTasks(userId),
       writes: {
         create: write(taskSchema, ({ userId, projectId }, data) => services.projects.createTask(userId, projectId!, data)),
         update: patch(taskPatch, ({ userId, projectId, id }, data) => services.projects.updateTask(userId, projectId!, id!, data)),
@@ -170,6 +172,14 @@ export function createAssistantActions(services: AppServices, calendar: TaskCale
 
   return {
     catalog, tools,
+    async upcomingDeadlines(userId: string, message: string, today: string, timeZone: string) {
+      const days = deadlineWindowDays(normalize(message));
+      if (!days) return undefined;
+      const [assignments, projectTasks, personalTasks] = await Promise.all([
+        services.study.list(userId, 'assignments'), listProjectTasks(userId), services.projects.listPersonalTasks(userId),
+      ]);
+      return formatUpcomingDeadlines({ today, days, timeZone }, assignments, projectTasks, personalTasks);
+    },
     async context(userId: string, scope: { kind: 'course' | 'project'; id: string }) {
       const items = scope.kind === 'course' ? await services.study.list(userId, 'courses') : await services.projects.list(userId);
       const item = items.find((row) => row.id === scope.id);
