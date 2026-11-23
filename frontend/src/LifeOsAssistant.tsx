@@ -26,12 +26,23 @@ const labels: Record<string, string> = {
   avatarUrl: 'Ảnh đại diện', phone: 'Điện thoại', bio: 'Giới thiệu', note: 'Ghi chú', content: 'Nội dung',
 };
 
+function fixedSlotLabel(value: unknown) {
+  if (typeof value !== 'object' || !value) return undefined;
+  const { date, start, end } = value as Record<string, unknown>;
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || typeof start !== 'number' || typeof end !== 'number') return undefined;
+  const weekday = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', timeZone: 'UTC' })
+    .format(new Date(`${date}T12:00:00Z`));
+  const displayDate = date.split('-').reverse().join('/');
+  return `${weekday}, ${displayDate} · ${timeLabel(start)}–${timeLabel(end)}`;
+}
+
 function fieldValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return 'Để trống';
   if (typeof value === 'boolean') return value ? 'Có' : 'Không';
   if ((key === 'start' || key === 'end') && typeof value === 'number') return timeLabel(value);
   if (key === 'weekday' && typeof value === 'number') return weekdays[value - 1] ?? String(value);
   if (key === 'category') return value === 'employment' ? 'Việc làm hằng tuần' : 'Việc cá nhân';
+  if (key === 'fixedSlot') return fixedSlotLabel(value) ?? 'Khung giờ chưa xác định';
   if (Array.isArray(value)) return value.map((item) => fieldValue(key, item)).join('\n') || 'Trống';
   if (typeof value === 'object') return Object.entries(value).map(([field, item]) => `${labels[field] ?? field} ${fieldValue(field, item)}`).join(' · ');
   return String(value);
@@ -177,7 +188,10 @@ export default function LifeOsAssistant({ scope, onSettings, onApplied }: {
     try {
       const route = `/assistant/changes/${change.id}`;
       await api<void>(apply ? `${route}/apply` : route, { method: apply ? 'POST' : 'DELETE' });
-      setMessages((previous) => [...previous, { role: 'assistant', content: `${apply ? 'Đã thực hiện' : 'Đã bỏ đề xuất'} “${summary}”.` }]);
+      const when = apply ? fixedSlotLabel(change.details.fixedSlot) : undefined;
+      const content = when ? `Đã lưu “${change.target}” · ${when}.`
+        : `${apply ? 'Đã thực hiện' : 'Đã bỏ đề xuất'} “${summary}”.`;
+      setMessages((previous) => [...previous, { role: 'assistant', content }]);
       if (apply) onApplied(change.resourceKey);
     } catch (reason) {
       setError(`${summary}. ${errorText(reason)}`);

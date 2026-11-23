@@ -12,12 +12,15 @@ import { requireAuth } from '../middleware/require-auth.js';
 import type { createAssistantActions } from './actions.js';
 import { extractNewOllamaCourse } from './ollama-course.js';
 import { checkOllamaAccess, createOllamaWorkerRouter, ollamaRelayEnabled } from './ollama-relay.js';
+import { readPersonalSchedule, scheduledTaskInstructions, scheduledTaskSchema } from './personal-schedule.js';
 import { defaultGroqModel, defaultOllamaModel, GroqRateLimitError, messageWithFile, modelText, sendModel, type AssistantFile, type ModelItem } from './provider.js';
 
 type Actions = ReturnType<typeof createAssistantActions>;
 type Draft = Awaited<ReturnType<Actions['prepare']>>;
 type Session = { userId: string; sessionId: string };
-type SendResponse = (input: ModelItem[], instructions: string, tools: Actions['tools'], signal: AbortSignal) => Promise<ModelItem[]>;
+type SendResponse = (input: ModelItem[], instructions: string, tools: Actions['tools'], signal: AbortSignal,
+  format?: Parameters<typeof sendModel>[5]) => Promise<ModelItem[]>;
+const scheduledTaskFormat = { name: 'scheduled_personal_task', schema: z.toJSONSchema(scheduledTaskSchema) };
 
 const scopeSchema = z.strictObject({ kind: z.enum(['course', 'project']), id: z.uuid() });
 const messageSchema = z.strictObject({ role: z.enum(['user', 'assistant']), content: z.string().trim().min(1).max(4000) });
@@ -80,6 +83,16 @@ function toolError(error: unknown) {
   if (error instanceof z.ZodError) return { error: 'Tham số không hợp lệ.', fields: error.issues.map(({ path, message }) => ({ path, message })) };
   if (error instanceof HttpError || error instanceof ApplicationError) return { error: error.message };
   throw error;
+}
+
+function sourcedTaskTitle(output: ModelItem[], source: string) {
+  let value: unknown;
+  const text = modelText(output).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try { value = JSON.parse(text); }
+  catch { return undefined; }
+  const title = scheduledTaskSchema.safeParse(value).data?.title;
+  if (title === null) return null;
+  if (title && source.normalize('NFC').toLocaleLowerCase('vi').includes(title.normalize('NFC').toLocaleLowerCase('vi'))) return title;
 }
 
 export function createAssistantRouter(auth: AuthService, actions: Actions, send?: SendResponse, store?: AssistantStore) {
@@ -219,7 +232,22 @@ ${actions.catalog}`;
       if (attachment) input[input.length - 1] = messageWithFile(lastMessage.content, attachment);
       const drafts: Draft[] = [];
       const timeout = AbortSignal.timeout(chatTimeoutMs);
-      if (!attachment && selectedConnection?.provider === 'ollama') {
+      let reply = '';
+      if (!attachment && !scope && (send || selectedConnection?.provider === 'ollama')) {
+        const schedule = readPersonalSchedule(lastMessage.content, now.slice(0, 10));
+        if (schedule) {
+          const prompt = [lastMessage];
+          const output = send ? await send(prompt, scheduledTaskInstructions, [], timeout, scheduledTaskFormat)
+            : await sendModel(selectedConnection!, prompt, scheduledTaskInstructions, [], timeout, scheduledTaskFormat);
+          const title = sourcedTaskTitle(output, lastMessage.content);
+          if (title && schedule.slot) {
+            drafts.push(await actions.prepare(session.userId, { resource: 'tasks', operation: 'create',
+              data: { title, category: 'personal', fixedSlot: schedule.slot } }));
+          } else if (title) reply = schedule.question ?? '';
+          else if (title === undefined) reply = 'Mình chưa xác định được thao tác cho lịch này. Bạn có thể nói rõ tên việc hoặc điều bạn muốn làm.';
+        }
+      }
+      if (!attachment && !reply && !drafts.length && selectedConnection?.provider === 'ollama') {
         const data = await extractNewOllamaCourse(selectedConnection, lastMessage.content, timeout);
         if (data) drafts.push(await actions.prepare(session.userId, { resource: 'courses', operation: 'create', data }, context));
       }
@@ -227,8 +255,9 @@ ${actions.catalog}`;
       const requestReply = () => send ? send(input, instructions, actions.tools, timeout)
         : sendModel(selectedConnection!, input, instructions, actions.tools, timeout);
       let retriedGroq = false;
-      let reply = '';
-      for (let round = 0; round < 12 && !(selectedConnection?.provider === 'ollama' && drafts.length); round += 1) {
+      let writeError: string | undefined;
+      const needsToolLoop = !reply && !drafts.length;
+      for (let round = 0; round < 12 && needsToolLoop; round += 1) {
         const output = await requestReply().catch(async (error: unknown) => {
           if (retriedGroq || !(error instanceof GroqRateLimitError) || res.destroyed) throw error;
           const seconds = error.retryAfterSeconds;
@@ -259,7 +288,9 @@ ${actions.catalog}`;
               result = { status: 'awaiting_approval', operation: draft.operation, resource: draft.resource, target: draft.target };
             }
           } catch (error) {
-            result = toolError(error);
+            const failure = toolError(error);
+            result = failure;
+            if (call.name === 'propose_lifeos_change') writeError = failure.error;
           }
           input.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result),
             ...(call.providerId === undefined ? {} : { providerId: call.providerId }) });
@@ -272,7 +303,12 @@ ${actions.catalog}`;
         const { operation, resource, resourceKey, target, details } = draft;
         return { id, operation, resource, resourceKey, target, details };
       });
-      reply ||= changes.length ? 'Bạn có thể xem và áp dụng các đề xuất bên dưới.' : 'Mình chưa xử lý xong. Bạn thử hỏi cụ thể hơn.';
+      if (changes.length) {
+        reply = 'Đề xuất đang chờ xác nhận. Bạn kiểm tra thông tin bên dưới rồi chọn Áp dụng để lưu.';
+      } else if (writeError) {
+        reply = `Mình chưa tạo được đề xuất. ${writeError}`;
+      }
+      reply ||= 'Mình chưa xử lý xong. Bạn thử hỏi cụ thể hơn.';
       await store?.saveHistory(session.userId, key, [...conversation, { role: 'assistant', content: reply }]);
       res.json({ reply, changes });
     });

@@ -6,6 +6,7 @@ import express from 'express';
 import { ApplicationError } from '../src/application/errors.ts';
 import { createAssistantActions } from '../src/assistant/actions.ts';
 import { formatUpcomingDeadlines } from '../src/assistant/deadlines.ts';
+import { readPersonalSchedule } from '../src/assistant/personal-schedule.ts';
 import { GroqRateLimitError, messageWithFile, modelText, sendModel } from '../src/assistant/provider.ts';
 import { createAssistantRouter } from '../src/assistant/router.ts';
 import { errorHandler } from '../src/middleware/error-handler.ts';
@@ -21,6 +22,79 @@ const sessions = new Map([
 function modelCall(name, args, id) {
   return { type: 'function_call', name, arguments: JSON.stringify(args), call_id: id, id };
 }
+
+test('personal schedule resolves one local date and an unambiguous time interval', () => {
+  assert.deepEqual(readPersonalSchedule('Đặt việc ăn sinh nhật tối mai lúc 8h15 đến 9h', '2026-11-23'), {
+    slot: { date: '2026-11-24', start: 1215, end: 1260 },
+  });
+  assert.deepEqual(readPersonalSchedule('Dọn nhà từ 07:30–09:00 ngày mốt', '2026-12-30'), {
+    slot: { date: '2027-01-01', start: 450, end: 540 },
+  });
+  assert.deepEqual(readPersonalSchedule('Họp nhóm 14:30 tới 15:30 ngày 24/11/2026', '2026-11-23'), {
+    slot: { date: '2026-11-24', start: 870, end: 930 },
+  });
+  assert.ok(readPersonalSchedule('Dọn nhà 8 đến 9 giờ ngày mai', '2026-11-23').question);
+  assert.ok(readPersonalSchedule('Tập thể thao 20:00–21:00', '2026-11-23').question);
+  assert.ok(readPersonalSchedule('Họp nhóm 20:00–21:00 ngày 30/02/2027', '2026-11-23').question);
+  assert.ok(readPersonalSchedule('Họp nhóm 23:00–01:00 ngày mai', '2026-11-23').question);
+  assert.equal(readPersonalSchedule('Đọc tài liệu trong 7 ngày tới', '2026-11-23'), undefined);
+});
+
+test('scheduled personal task only saves the confirmed local date and times', async (t) => {
+  // It is already 23 November in Vietnam but still 22 November in UTC.
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-22T17:15:00Z') });
+  const saved = [];
+  const auth = { authenticate: async (token) => sessions.get(token) };
+  const services = { projects: { createPersonalTask: async (userId, task) => {
+    assert.equal(userId, userA);
+    saved.push(task);
+  } } };
+  const output = (text) => [{ type: 'message', content: [{ type: 'output_text', text }] }];
+  const fakeModel = async (input, _instructions, tools, _signal, format) => {
+    if (!format) return output('Bạn đang xem lịch.');
+    assert.equal(format.name, 'scheduled_personal_task');
+    assert.equal(tools.length, 0);
+    if (input[0].content.includes('xem phim')) return output('Đã lưu vào lịch.');
+    const title = input[0].content.startsWith('Xem') ? null : 'Đi ăn sinh nhật';
+    return output(JSON.stringify({ title }));
+  };
+  const app = express().use(createAssistantRouter(auth, createAssistantActions(services, {}), fakeModel)).use(errorHandler);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const request = (path, body) => fetch(`http://127.0.0.1:${server.address().port}${path}`, {
+    method: 'POST', headers: { Authorization: 'Bearer a', 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const chat = async (content) => {
+    const response = await request('/chat', { timeZone: 'Asia/Ho_Chi_Minh', messages: [{ role: 'user', content }] });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  try {
+    const { reply, changes } = await chat('Thêm công việc cá nhân là Đi ăn sinh nhật vào tối mai lúc 8 đến 9 giờ');
+    const expectedSlot = { date: '2026-11-24', start: 1200, end: 1260 };
+    assert.match(reply, /chờ xác nhận/);
+    assert.equal(changes.length, 1);
+    assert.deepEqual(changes[0].details, { title: 'Đi ăn sinh nhật', category: 'personal', fixedSlot: expectedSlot });
+    assert.deepEqual(saved, []);
+    assert.equal((await request(`/changes/${changes[0].id}/apply`)).status, 204);
+    assert.equal(saved.length, 1);
+    assert.deepEqual(saved[0].fixedSlot, expectedSlot);
+    assert.equal(saved[0].category, 'personal');
+
+    const ambiguous = await chat('Thêm việc Đi ăn sinh nhật từ 8 đến 9 giờ ngày mai');
+    assert.match(ambiguous.reply, /24 giờ/);
+    assert.deepEqual(ambiguous.changes, []);
+    const reading = await chat('Xem lịch ngày mai từ 20:00 đến 21:00');
+    assert.equal(reading.reply, 'Bạn đang xem lịch.');
+    assert.deepEqual(reading.changes, []);
+    const malformed = await chat('Thêm việc đi xem phim từ 20:00 đến 21:00 ngày mai');
+    assert.match(malformed.reply, /chưa xác định/);
+    assert.deepEqual(malformed.changes, []);
+    assert.equal(saved.length, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test('deadline summary includes today and the sixth following day in the user time zone', () => {
   const window = { today: '2026-11-23', days: 7, timeZone: 'Asia/Ho_Chi_Minh' };
@@ -138,7 +212,7 @@ test('assistant confines tool calls to account data and applies a proposal only 
       assert.ok(results.get('describe').fields.properties.title);
       assert.equal(results.get('create').status, 'awaiting_approval');
     }
-    return [{ type: 'message', content: [{ type: 'output_text', text: 'Hãy xem đề xuất.' }] }];
+    return [{ type: 'message', content: [{ type: 'output_text', text: 'Đã lưu công việc.' }] }];
   };
   const app = express().use(express.json()).use(createAssistantRouter(auth, tools, fakeModel)).use(errorHandler);
   const server = app.listen(0, '127.0.0.1');
@@ -152,7 +226,8 @@ test('assistant confines tool calls to account data and applies a proposal only 
 
     const response = await chat('Thêm công việc', 'a');
     assert.equal(response.status, 200);
-    const { changes } = await response.json();
+    const { reply, changes } = await response.json();
+    assert.match(reply, /chờ xác nhận/);
     assert.equal(changes.length, 1);
     const [{ id, details }] = changes;
     assert.equal(details.title, 'Lấy sách ở thư viện');
