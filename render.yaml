@@ -1,13 +1,6 @@
-databases:
-  - name: lifeos-db
-    databaseName: lifeos
-    user: lifeos
-    region: singapore
-    plan: free
-
 services:
   - type: web
-    name: lifeos-api
+    name: loshci14-ai-api
     runtime: node
     rootDir: backend
     region: singapore
@@ -21,26 +14,30 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: DATABASE_URL
-        fromDatabase:
-          name: lifeos-db
-          property: connectionString
+        sync: false
+      - key: ASSISTANT_SETTINGS_KEY
+        generateValue: true
       - key: SESSION_TTL_DAYS
         value: 30
       - key: CORS_ORIGIN
         fromService:
           type: web
-          name: lifeos-frontend
+          name: loshci14-ai-web
           envVarKey: RENDER_EXTERNAL_URL
 
   - type: web
-    name: lifeos-frontend
+    name: loshci14-ai-web
     runtime: static
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: lifeos-api
+          name: loshci14-ai-api
           envVarKey: RENDER_EXTERNAL_URL

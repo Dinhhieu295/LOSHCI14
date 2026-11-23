@@ -23,10 +23,11 @@ LifeOS là ứng dụng web hỗ trợ người dùng tổ chức các khía c�
 
 - **Tài khoản:** đăng ký, đăng nhập, xác thực phiên và đăng xuất.
 - **Tổng quan:** xem tiến độ dự án, GPA, chuỗi ngày và bài tập đang chờ.
-- **Dự án và công việc:** quản lý hạn, tiến độ, mức ưu tiên và thời lượng thực tế. LifeOS ghi thời điểm khi đánh dấu một công việc hoàn thành.
-- **Học tập:** quản lý môn học, bài tập, kỳ thi, ghi chú, tự học và gợi ý học. Mục **Phân tích GPA** tính GPA hệ 4 theo tín chỉ, có bộ lọc học kỳ và kịch bản điểm.
+- **Dự án:** tab **Hạn task** hiển thị công việc từ tất cả dự án theo hạn nộp. Mỗi dự án có trang chi tiết trong cùng tab với các mục **Công việc**, **Tài liệu** và **Bấm giờ**. Có thể đặt hạn, ưu tiên và phụ thuộc giữa các task cùng dự án. Tệp đính kèm tối đa 10 MB mỗi tệp được gom từ các task. Đồng hồ lưu từng phiên làm việc theo task hoặc theo dự án.
+- **Học tập:** mỗi môn mở trong cùng tab, với điểm, số buổi nghỉ, giờ học và tiến độ bài tập ngay dưới tên môn. Có thể mở lịch học, quản lý kỳ thi, ghi chú, tài liệu, phụ thuộc và bấm giờ từng bài tập. Mục **Bài tập** gom hạn nộp từ nhiều môn.
 - **Lịch trình:** chuyển tuần, nhảy tới một ngày hoặc xem tổng quan 4 tuần. Lịch hiển thị buổi học, sự kiện cá nhân và hạn chót của việc cá nhân lẫn task dự án. Có thể đặt khung giờ rảnh, kéo thả hoặc nhờ LifeOS gợi ý và lưu phiên làm việc.
 - **Công việc:** lịch **Việc làm** như đi dạy hay làm thêm tự lặp cùng thứ và giờ mỗi tuần kể từ ngày bắt đầu. **Việc cá nhân** như sinh nhật hoặc du lịch diễn ra một lần, có thể đặt giờ cụ thể hoặc đưa vào hàng đợi để xếp sau. Có thể đặt hạn chót và xem tiến độ việc dự án.
+- **Trợ lý LifeOS:** tra cứu dữ liệu trong tài khoản và đề xuất tạo, sửa hoặc xóa các mục của LifeOS. Xem từng thay đổi, rồi chọn **Áp dụng** hoặc **Bỏ qua**.
 - **Thời gian tự học:** bấm giờ, tạm dừng/tiếp tục, lưu study log và xem heatmap theo tuần.
 - **Cá nhân:** cập nhật hồ sơ và đổi mật khẩu.
 - **Trải nghiệm giao diện:** chuyển chế độ sáng/tối, hỗ trợ menu ở màn hình di động.
@@ -135,6 +136,14 @@ npm run dev
 
 Frontend chạy ở `http://localhost:5173` và Vite proxy `/api` tới backend ở cổng `4000`.
 
+### Deploy bản demo trên Render Free và Neon Free
+
+Tạo project PostgreSQL trên Neon ở vùng Singapore và lấy chuỗi kết nối **Direct** có TLS từ mục **Connect**. Trong Render, tạo Blueprint từ nhánh GitHub có `render.yaml`, chọn gói Free và nhập chuỗi kết nối Neon vào biến `DATABASE_URL` của backend. Backend chạy migration trước khi khởi động. Frontend nhận URL của API từ Blueprint.
+
+Nếu cập nhật một Blueprint đã có, đặt lại `DATABASE_URL` trong mục **Environment** của backend Render. Chuỗi này chứa thông tin đăng nhập DB, nên lưu trong cấu hình riêng của Render. Có thể đăng ký một tài khoản trên bản web để nhập dữ liệu demo.
+
+Blueprint tạo `ASSISTANT_SETTINGS_KEY` cho backend để mã hóa các API key cá nhân. Trên bản web, đăng nhập rồi mở **Cài đặt → Trợ lý AI**, chọn **OpenAI**, nhập API key có hạn mức và lưu kết nối. Giữ giá trị `ASSISTANT_SETTINGS_KEY` khi cập nhật dịch vụ để backend tiếp tục mở được khóa đã lưu.
+
 ### Tài khoản demo
 
 Sau khi migration database, có thể tạo dữ liệu demo:
@@ -147,9 +156,19 @@ npm run db:seed:demo
 - Email: `uet-demo@lifeos.local`
 - Mật khẩu: `UETLifeOS123!`
 
+### Dùng Trợ lý LifeOS với API key
+
+Đặt `ASSISTANT_SETTINGS_KEY` thành khóa ngẫu nhiên riêng của backend, chạy migration và khởi động lại API. Tạo khóa máy chủ bằng `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` rồi lưu trong `backend/.env` hoặc trình quản lý secret của môi trường triển khai. Giữ cùng một giá trị qua các lần khởi động để mở được API key đã lưu.
+
+Sau khi đăng nhập, vào **Cài đặt → Trợ lý AI** để lưu API key OpenAI, Google Gemini hoặc GroqCloud. GroqCloud mặc định dùng `qwen/qwen3.8-27b`, hỗ trợ chat, gọi công cụ LifeOS và đọc ảnh slide trong hạn mức của gói miễn phí. Với bản tự triển khai, nên dùng khóa thuộc tài khoản của người vận hành. `OPENAI_API_KEY` và `OPENAI_MODEL` vẫn có thể cấu hình kết nối mặc định trên backend.
+
+**Trợ lý** ở thanh trên cùng mở chat chung, chat của môn học hoặc chat của dự án đang xem. Trợ lý dùng dịch vụ LifeOS theo tài khoản đang đăng nhập và đưa thao tác ra xem trước để duyệt. Đề xuất chờ duyệt tối đa 10 phút. Câu hỏi, dữ liệu công cụ và tệp được đính kèm để phân tích sẽ được gửi từ backend đến nhà cung cấp đang dùng. Có thể xóa lịch sử chat trong từng ngữ cảnh.
+
+Đính kèm PDF, PNG hoặc JPG trong chat để phân tích, rồi bấm **Lưu vào Tài liệu** để lưu tệp vào môn hay dự án hiện tại. Khi dùng GroqCloud, chọn ảnh PNG hoặc JPG của trang cần đọc. Trong trang môn, mở **Đầu điểm → Lấy tỷ trọng từ slide** để duyệt tên, trọng số và trang nguồn trước khi đưa vào bảng điểm và bấm **Lưu điểm**.
+
 ## 8. Kiểm thử và kết quả
 
-Bộ test Playwright nằm tại `test/lifeos.spec.ts` và `test/manual-scenarios.spec.ts`. Bộ test bao gồm kiểm thử giao diện, điều hướng mobile, API, phân tích GPA, giờ trống, phản hồi gợi ý và thời điểm hoàn thành công việc. Sau khi ứng dụng và PostgreSQL hoạt động, từ thư mục gốc chạy:
+Bộ test Playwright nằm tại `test/lifeos.spec.ts` và `test/manual-scenarios.spec.ts`. Bộ test bao gồm kiểm thử giao diện, điều hướng mobile, API, giờ trống, phản hồi gợi ý và thời điểm hoàn thành công việc. Sau khi ứng dụng và PostgreSQL hoạt động, từ thư mục gốc chạy:
 
 ```powershell
 npm.cmd install

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Flag, GripVertical, Lightbulb, Plus, SlidersHorizontal } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Flag, GripVertical, Lightbulb, Plus, SlidersHorizontal } from 'lucide-react';
 import {
   api, type AvailabilityWindow, type CalendarTaskBlock, type CalendarTaskInput, type CalendarTime, type Course,
   type CourseSession, type NoticeHandler, type PlanningSettings, type Project, type ProjectTask, type ScheduleItem,
@@ -24,6 +24,7 @@ interface Props {
   tasksByProject: Record<string, ProjectTask[]>;
   personalTasks: ProjectTask[];
   setSchedule: Dispatch<SetStateAction<ScheduleItem[]>>;
+  planningRevision: number;
   weekDate: string | null;
   onWeekChange: (date: string | null) => void;
   showAvailability: boolean;
@@ -40,13 +41,14 @@ type Editor =
 
 const pixelsPerMinute = 1;
 const workRoute = '/calendar/task-blocks';
+const queuePreference = 'lifeos_calendar_queue_collapsed';
 const periodLabel = (slot: CalendarTime) => `${timeLabel(slot.start)}–${timeLabel(slot.end)}`;
 const shortDate = (date: string) => `${date.slice(8)}/${date.slice(5, 7)}`;
 const minutesLabel = (minutes: number) => minutes < 60 ? `${minutes} phút` :
   `${Math.floor(minutes / 60)} giờ${minutes % 60 ? ` ${minutes % 60} phút` : ''}`;
 
 export default function TimetablePage({ courses, sessions, schedule, projects, tasksByProject, personalTasks, setSchedule, onNotice,
-  onOpenCourse, onOpenTask, weekDate, onWeekChange, showAvailability, onAvailabilityChange }: Props) {
+  onOpenCourse, onOpenTask, weekDate, onWeekChange, showAvailability, onAvailabilityChange, planningRevision }: Props) {
   const [now, setNow] = useState(() => new Date());
   const today = localDate(now);
   const week = useMemo(() => startOfWeek(dateOf(weekDate ?? today)), [weekDate, today]);
@@ -59,6 +61,7 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
   const [editor, setEditor] = useState<Editor | null>(null);
   const [preview, setPreview] = useState<CalendarTaskBlock[] | null>(null);
   const [projectFilter, setProjectFilter] = useState('');
+  const [queueCollapsed, setQueueCollapsed] = useState(() => localStorage.getItem(queuePreference) === 'true');
   const [busy, setBusy] = useState(false);
   const [operationError, setOperationError] = useState('');
   const pending = useRef(false);
@@ -80,7 +83,7 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
       if (active) setLoadError(error instanceof Error ? error.message : 'Không tải được phiên làm việc.');
     });
     return () => { active = false; };
-  }, [attempt]);
+  }, [attempt, planningRevision]);
 
   const work = useMemo(() => collectWork(projects, tasksByProject, personalTasks), [projects, tasksByProject, personalTasks]);
   const tasks = useMemo(() => new Map(work.map((item) => [item.task.id, item])), [work]);
@@ -212,12 +215,50 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
 
   const { viewport, handle, drag } = useCalendarDrag(onDrop, topMinute, pixelsPerMinute);
 
+  const toggleQueue = () => {
+    const collapsed = !queueCollapsed;
+    setQueueCollapsed(collapsed);
+    localStorage.setItem(queuePreference, String(collapsed));
+  };
+
   useEffect(() => {
     const element = viewport.current;
     const visible = jumpDay && days.includes(jumpDay) ? jumpDay : today;
     const currentDay = element?.querySelector<HTMLElement>(`[data-calendar-date="${visible}"]`);
     if (element) element.scrollLeft = currentDay ? currentDay.offsetLeft - 50 : 0;
   }, [days, today, jumpDay, fourWeeks, viewport]);
+
+  useEffect(() => {
+    const element = viewport.current;
+    const page = element?.closest('.calendar-page');
+    if (!element || !page) return;
+
+    const visibleViewport = window.visualViewport;
+    let frame = 0;
+    const fitCalendar = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const top = element.getBoundingClientRect().top + window.scrollY;
+        const available = Math.floor((visibleViewport?.height ?? window.innerHeight) - top - 12);
+        // Keep the calendar usable after scrolling past tall toolbars or the expanded queue.
+        const height = `${available >= 180 ? available : 240}px`;
+        if (element.style.getPropertyValue('--calendar-available-height') !== height) {
+          element.style.setProperty('--calendar-available-height', height);
+        }
+      });
+    };
+    const observer = new ResizeObserver(fitCalendar);
+    observer.observe(page);
+    window.addEventListener('resize', fitCalendar);
+    visibleViewport?.addEventListener('resize', fitCalendar);
+    fitCalendar();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', fitCalendar);
+      visibleViewport?.removeEventListener('resize', fitCalendar);
+    };
+  }, [fourWeeks, viewport]);
 
   const suggest = () => {
     if (!blocks) return;
@@ -348,7 +389,45 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
       {fourWeeks ? (
         <CalendarWeeks start={week} today={today} deadlines={deadlines} sessions={activeSessions}
           appointments={fixedTaskTimes(personalTasks, datesFrom(week, 28))} onChoose={jumpToDate} />
-      ) : <div className="calendar-layout">
+      ) : <div className="calendar-layout" data-queue-collapsed={queueCollapsed || undefined}>
+        <aside data-calendar-queue className={`panel calendar-queue${drag?.block || drag?.draftId ? ' calendar-drop-ready' : ''}`} aria-label="Hàng đợi công việc">
+          <div className="calendar-queue-head">
+            <h2>Hàng đợi <span>{blocks ? visibleQueue.length : '—'}</span></h2>
+            <button type="button" className="soft-button calendar-queue-toggle"
+              aria-label={queueCollapsed ? 'Mở hàng đợi' : 'Thu gọn hàng đợi'}
+              aria-expanded={!queueCollapsed} aria-controls="calendar-queue-content" onClick={toggleQueue}>
+              {queueCollapsed ? 'Mở' : 'Thu gọn'} <ChevronDown size={16} aria-hidden="true" />
+            </button>
+          </div>
+          <div id="calendar-queue-content" className="calendar-queue-content" hidden={queueCollapsed}>
+            {(projects.length + standaloneCategories.length > 1) && <select className="calendar-filter" aria-label="Lọc hàng đợi" value={projectFilter}
+              onChange={(event) => setProjectFilter(event.target.value)}>
+              <option value="">Tất cả công việc</option>
+              {standaloneCategories.map((category) => <option value={category} key={category}>{workCategoryLabels[category]}</option>)}
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
+            </select>}
+            <p className="calendar-queue-hint">Việc linh hoạt chưa xếp đủ giờ. Thả phiên vào đây để trả về hàng đợi.</p>
+            {blocks && !visibleQueue.length && <p className="calendar-queue-empty">Không còn việc cần xếp giờ trong hàng đợi này.</p>}
+            <ul className="calendar-queue-list">
+              {blocks && visibleQueue.map((item) => (
+                <li key={item.task.id} className="calendar-queue-card">
+                  <div><strong>{item.task.title}</strong><p>{item.group.title}</p>
+                    <p>{minutesLabel(item.remaining)} còn lại{item.task.dueDate && ` · Hạn ${dateLabel(item.task.dueDate)}`}</p></div>
+                  <div>
+                    <button className="soft-button" type="button" aria-label={`Xếp giờ cho ${item.task.title}`} disabled={busy || !!loadError}
+                      onClick={() => selectSlot(item)}>Xếp giờ</button>
+                    <button type="button" className="calendar-grip" aria-label={`Kéo ${item.task.title} vào lịch`} disabled={busy || !!loadError}
+                      {...handle({ title: item.task.title, taskId: item.task.id, duration: Math.min(item.remaining, sessionMinutes) })}
+                      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSlot(item); } }}>
+                      <GripVertical size={18} />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </aside>
+
         <section className={`panel calendar-board${drag ? ' calendar-dragging' : ''}`} aria-label="Lịch theo tuần">
           <div className="calendar-legend"><span data-kind="course">Lớp học</span><span data-kind="personal">Cá nhân</span>
             {appointments.length > 0 && <span data-kind="fixed-task">Việc cố định</span>}
@@ -385,12 +464,16 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
               {days.map((date) => <div className="calendar-date" key={date} data-calendar-date={date}
                 aria-label={dateLabel(date)} style={{ height: (bottomMinute - topMinute) * pixelsPerMinute }}>
                 {layoutDay(entries.filter((entry) => entry.date === date)).map(({ entry, lane, count }) => {
+                  const duration = entry.end - entry.start;
+                  const time = periodLabel(entry);
                   const isWork = entry.kind === 'task' || entry.kind === 'suggestion';
                   const conflicted = (isWork || entry.kind === 'fixed-task') &&
                     fixed.some((other) => other.id !== entry.id && overlaps(entry, other));
+                  const timeWithConflict = conflicted ? `${time} · Trùng lịch` : time;
                   const fixedTask = entry.kind === 'fixed-task' ? tasks.get(entry.taskId) : undefined;
                   const category = fixedTask?.task.category === 'employment' ? `${fixedTask.group.title} · Hằng tuần` : fixedTask?.group.title;
-                  const summary = `${entry.title} · ${periodLabel(entry)}${category ? ` · ${category}` : ''}${conflicted ? ' · Trùng lịch' : ''}`;
+                  const detail = entry.kind === 'course' ? entry.location : category;
+                  const summary = `${entry.title} · ${time}${category ? ` · ${category}` : ''}${conflicted ? ' · Trùng lịch' : ''}`;
                   const canDrag = isWork && !entry.done && !busy && !loadError;
                   return (
                     <div className="calendar-entry" key={entry.id} data-kind={entry.kind}
@@ -399,20 +482,20 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
                       title={entry.kind === 'course' && entry.location ? `${summary} · ${entry.location}` : summary}
                       style={{
                         top: (entry.start - topMinute) * pixelsPerMinute,
-                        height: Math.max(18, (entry.end - entry.start) * pixelsPerMinute - 1),
+                        height: Math.max(18, duration * pixelsPerMinute - 1),
                         left: `calc(${lane * 100 / count}% + 2px)`,
                         width: `calc(${100 / count}% - 4px)`,
                         borderInlineStartColor: entry.kind === 'personal' && /^#[0-9a-f]{6}$/i.test(entry.event.color) ? entry.event.color : undefined,
                       }}>
                       <button type="button" className="calendar-entry-title" aria-label={summary} onClick={() => openEntry(entry)}>
-                        {entry.title}<small>{periodLabel(entry)}{conflicted ? ' · Trùng lịch' : ''}</small>
-                        {entry.kind === 'course' && entry.location && entry.end - entry.start >= 45 && <small>{entry.location}</small>}
-                        {category && entry.end - entry.start >= 45 && <small>{category}</small>}
+                        {entry.title}
+                        {duration >= 30 ? <small>{timeWithConflict}</small> : ` · ${timeWithConflict}`}
+                        {duration >= 45 && detail && <small>{detail}</small>}
                       </button>
                       {canDrag && (
                         <button type="button" className="calendar-grip" aria-label={`Kéo phiên ${entry.title}`}
                           {...handle({ title: entry.title, taskId: entry.taskId, block: entry.kind === 'task' ? entry : undefined,
-                            draftId: entry.kind === 'suggestion' ? entry.id : undefined, duration: entry.end - entry.start })}
+                            draftId: entry.kind === 'suggestion' ? entry.id : undefined, duration })}
                           onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openEntry(entry); } }}>
                           <GripVertical size={15} />
                         </button>
@@ -430,37 +513,6 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
             }}>{event.title}</button>)}
           </div>}
         </section>
-
-        <aside data-calendar-queue className={`panel calendar-queue${drag?.block || drag?.draftId ? ' calendar-drop-ready' : ''}`} aria-label="Hàng đợi công việc">
-          <div className="calendar-queue-head">
-            <h2>Hàng đợi <span>{blocks ? visibleQueue.length : '—'}</span></h2>
-            {(projects.length + standaloneCategories.length > 1) && <select className="calendar-filter" aria-label="Lọc hàng đợi" value={projectFilter}
-              onChange={(event) => setProjectFilter(event.target.value)}>
-              <option value="">Tất cả công việc</option>
-              {standaloneCategories.map((category) => <option value={category} key={category}>{workCategoryLabels[category]}</option>)}
-              {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
-            </select>}
-          </div>
-            <p className="calendar-queue-hint">Việc linh hoạt chưa xếp đủ giờ. Thả phiên vào đây để trả về hàng đợi.</p>
-          {blocks && !visibleQueue.length && <p className="calendar-queue-empty">Không còn việc cần xếp giờ trong hàng đợi này.</p>}
-          <ul className="calendar-queue-list">
-            {blocks && visibleQueue.map((item) => (
-              <li key={item.task.id} className="calendar-queue-card">
-                <div><strong>{item.task.title}</strong><p>{item.group.title}</p>
-                  <p>{minutesLabel(item.remaining)} còn lại{item.task.dueDate && ` · Hạn ${dateLabel(item.task.dueDate)}`}</p></div>
-                <div>
-                  <button className="soft-button" type="button" aria-label={`Xếp giờ cho ${item.task.title}`} disabled={busy || !!loadError}
-                    onClick={() => selectSlot(item)}>Xếp giờ</button>
-                  <button type="button" className="calendar-grip" aria-label={`Kéo ${item.task.title} vào lịch`} disabled={busy || !!loadError}
-                    {...handle({ title: item.task.title, taskId: item.task.id, duration: Math.min(item.remaining, sessionMinutes) })}
-                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSlot(item); } }}>
-                    <GripVertical size={18} />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </aside>
       </div>}
 
       {drag && <div className="calendar-drag-preview" aria-hidden="true"

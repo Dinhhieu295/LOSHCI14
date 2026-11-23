@@ -7,6 +7,7 @@ import './tasks.css';
 import './dark-theme.css';
 import './study.css';
 import './readability.css';
+import './assistant.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode><App /></React.StrictMode>,

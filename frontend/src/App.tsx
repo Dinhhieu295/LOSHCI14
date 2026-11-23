@@ -24,6 +24,7 @@ import {
   Moon,
   Pin,
   RefreshCw,
+  Settings,
   Sparkles,
   Sprout,
   Sun,
@@ -55,21 +56,22 @@ import {
   type StudySummary,
   type User,
 } from './api';
-import ProjectsPage from './ProjectsPage';
+import ProjectsPage, { type ProjectView } from './ProjectsPage';
 import ProfileEditor from './ProfileEditor';
 import GlobalSearch, { type SearchTarget } from './GlobalSearch';
 import StudyPage, { computeUnifiedStudyHours, type StudyTab } from './StudyPage';
-import GpaPage from './GpaPage';
 import WorkPage, { type WorkView } from './WorkPage';
 import StudyRecommendations from './StudyRecommendations';
 import TimetablePage from './TimetablePage';
+import LifeOsAssistant from './LifeOsAssistant';
+import SettingsPage from './SettingsPage';
 import { calculateGpa } from './studyPlanning';
 import './profile.css';
 
-type Section = 'overview' | 'projects' | 'study' | 'calendar' | 'work' | 'personal';
+type Section = 'overview' | 'projects' | 'study' | 'calendar' | 'work' | 'personal' | 'settings';
 
-const validSections: Section[] = ['overview', 'projects', 'study', 'calendar', 'work', 'personal'];
-const validStudyTabs: StudyTab[] = ['courses', 'gpa', 'assignments', 'exams', 'notes', 'time', 'recommendations'];
+const validSections: Section[] = ['overview', 'projects', 'study', 'calendar', 'work', 'personal', 'settings'];
+const validStudyTabs: StudyTab[] = ['courses', 'assignments', 'exams', 'notes', 'time', 'recommendations', 'documents', 'course-schedule'];
 
 interface UrlState {
   section: Section;
@@ -80,6 +82,7 @@ interface UrlState {
   examId: string | null;
   noteId: string | null;
   studyTab: StudyTab;
+  projectView: ProjectView;
   workView: WorkView;
   calendarWeek: string | null;
   calendarAvailability: boolean;
@@ -112,13 +115,19 @@ function readUrlState(): UrlState {
   }
   if (String(pathSeg) === 'gpa' || String(querySection) === 'gpa') {
     section = 'study';
-    studyTab = 'gpa';
+    studyTab = 'courses';
   }
   if (section === 'study' && params.get('tab') === 'schedule') section = 'calendar';
+  if (section === 'study' && courseId) {
+    if (params.get('tab') === 'course-info') studyTab = 'course-schedule';
+    else if (studyTab === 'courses') studyTab = 'assignments';
+  }
+  if (!courseId && (studyTab === 'documents' || studyTab === 'course-schedule')) studyTab = 'courses';
   const week = params.get('week');
   const date = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? new Date(`${week}T12:00:00Z`) : null;
   const calendarWeek = date && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === week ? week : null;
   return { section, projectId, taskId, courseId, assignmentId, examId, noteId, studyTab, calendarWeek,
+    projectView: section === 'projects' && view === 'deadlines' ? 'deadlines' : 'list',
     workView: view === 'projects' || (legacyPlanning && view === 'work') ? 'projects'
       : view === 'employment' ? 'employment' : 'personal',
     calendarAvailability: section === 'calendar' && view === 'availability' };
@@ -134,6 +143,7 @@ function buildUrl(
     examId?: string | null;
     noteId?: string | null;
     studyTab?: StudyTab;
+    projectView?: ProjectView;
     workView?: WorkView;
     calendarWeek?: string | null;
     calendarAvailability?: boolean;
@@ -144,6 +154,7 @@ function buildUrl(
   if (section === 'projects') {
     if (opts.projectId) params.set('project', opts.projectId);
     if (opts.taskId) params.set('task', opts.taskId);
+    if (opts.projectView === 'deadlines') params.set('view', 'deadlines');
   }
   if (section === 'study') {
     if (opts.studyTab && opts.studyTab !== 'courses') params.set('tab', opts.studyTab);
@@ -174,6 +185,7 @@ const navItems: { id: Section; label: string; icon: typeof LayoutDashboard }[] =
   { id: 'work', label: 'Công việc', icon: ClipboardList },
   { id: 'calendar', label: 'Lịch trình', icon: CalendarDays },
   { id: 'personal', label: 'Cá nhân', icon: UserRound },
+  { id: 'settings', label: 'Cài đặt', icon: Settings },
 ];
 
 const today = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
@@ -212,9 +224,11 @@ export default function App() {
   const [selectedExamId, setSelectedExamId] = useState<string | null>(initialUrl.examId);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(initialUrl.noteId);
   const [studyTab, setStudyTab] = useState<StudyTab>(initialUrl.studyTab);
+  const [projectView, setProjectView] = useState<ProjectView>(initialUrl.projectView);
   const [workView, setWorkView] = useState<WorkView>(initialUrl.workView);
   const [calendarWeek, setCalendarWeek] = useState<string | null>(initialUrl.calendarWeek);
   const [calendarAvailability, setCalendarAvailability] = useState(initialUrl.calendarAvailability);
+  const [planningRevision, setPlanningRevision] = useState(0);
 
   const [mobileNav, setMobileNav] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -300,6 +314,7 @@ export default function App() {
         examId?: string | null;
         noteId?: string | null;
         studyTab?: StudyTab;
+        projectView?: ProjectView;
         workView?: WorkView;
         calendarWeek?: string | null;
         calendarAvailability?: boolean;
@@ -324,10 +339,12 @@ export default function App() {
       setSelectedExamId(nextExam);
       setSelectedNoteId(nextNote);
       if (opts.studyTab !== undefined) setStudyTab(opts.studyTab);
+      const nextProjectView = opts.projectView ?? (section === 'projects' && nextSection === 'projects' ? projectView : 'list');
       const nextWorkView = opts.workView ?? workView;
       const nextWeek = opts.calendarWeek !== undefined ? opts.calendarWeek : calendarWeek;
       const nextAvailability = opts.calendarAvailability ?? (section === 'calendar' && nextSection === 'calendar' && calendarAvailability);
       setWorkView(nextWorkView);
+      setProjectView(nextProjectView);
       setCalendarWeek(nextWeek);
       setCalendarAvailability(nextAvailability);
 
@@ -339,6 +356,7 @@ export default function App() {
         examId: nextExam,
         noteId: nextNote,
         studyTab: nextTab,
+        projectView: nextProjectView,
         workView: nextWorkView,
         calendarWeek: nextWeek,
         calendarAvailability: nextAvailability,
@@ -357,11 +375,16 @@ export default function App() {
       selectedNoteId,
       studyTab,
       section,
+      projectView,
       workView,
       calendarWeek,
       calendarAvailability,
     ],
   );
+
+  const selectProject = useCallback((id: string | null, taskId?: string | null) => {
+    navigateSection('projects', { projectId: id, taskId: taskId ?? null, replace: id === selectedProjectId });
+  }, [navigateSection, selectedProjectId]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -374,6 +397,7 @@ export default function App() {
       setSelectedExamId(state.examId);
       setSelectedNoteId(state.noteId);
       setStudyTab(state.studyTab);
+      setProjectView(state.projectView);
       setWorkView(state.workView);
       setCalendarWeek(state.calendarWeek);
       setCalendarAvailability(state.calendarAvailability);
@@ -645,7 +669,7 @@ export default function App() {
     setSearchTarget(target);
     if (target.kind === 'course') {
       navigateSection('study', {
-        studyTab: 'courses',
+        studyTab: 'assignments',
         courseId: target.courseId ?? null,
         assignmentId: null,
         examId: null,
@@ -654,7 +678,7 @@ export default function App() {
     } else if (target.kind === 'assignment') {
       navigateSection('study', {
         studyTab: 'assignments',
-        courseId: null,
+        courseId: assignments.find((item) => item.id === target.assignmentId)?.courseId ?? null,
         assignmentId: target.assignmentId ?? null,
         examId: null,
         noteId: null,
@@ -662,7 +686,7 @@ export default function App() {
     } else if (target.kind === 'exam') {
       navigateSection('study', {
         studyTab: 'exams',
-        courseId: null,
+        courseId: exams.find((item) => item.id === target.examId)?.courseId ?? null,
         assignmentId: null,
         examId: target.examId ?? null,
         noteId: null,
@@ -670,7 +694,7 @@ export default function App() {
     } else if (target.kind === 'note') {
       navigateSection('study', {
         studyTab: 'notes',
-        courseId: null,
+        courseId: notes.find((item) => item.id === target.noteId)?.courseId ?? null,
         assignmentId: null,
         examId: null,
         noteId: target.noteId ?? null,
@@ -728,7 +752,8 @@ export default function App() {
               className={`nav-item ${section === id ? 'active' : ''}`}
               aria-current={section === id ? 'page' : undefined}
               onClick={() => {
-                navigateSection(id);
+                navigateSection(id, id === 'projects' ? { projectId: null, taskId: null, projectView: 'list' }
+                  : id === 'study' ? { studyTab: 'courses', courseId: null, assignmentId: null, examId: null, noteId: null } : undefined);
                 setMobileNav(false);
               }}
             >
@@ -792,7 +817,7 @@ export default function App() {
                 <strong>Dự án:</strong> tạo/sửa dự án, chia nhỏ thành task, quản lý subtasks, phụ thuộc và timeline.
               </li>
               <li>
-                <strong>Học tập:</strong> quản lý môn học, bài tập, kỳ thi, ghi chú, tự học và phân tích GPA.
+                <strong>Học tập:</strong> quản lý môn học, bài tập, kỳ thi, ghi chú và nhật ký học.
               </li>
               <li>
                 <strong>Công việc:</strong> quản lý việc làm, việc cá nhân và theo dõi tiến độ dự án.
@@ -845,6 +870,24 @@ export default function App() {
             >
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
+            <LifeOsAssistant key={`${user.id}:${section === 'study' ? selectedCourseId ?? '' : section === 'projects' ? selectedProjectId ?? '' : ''}`}
+              scope={section === 'study' && selectedCourseId
+                ? { kind: 'course', id: selectedCourseId, title: courses.find((course) => course.id === selectedCourseId)?.name ?? 'Môn học' }
+                : section === 'projects' && selectedProjectId
+                ? { kind: 'project', id: selectedProjectId, title: projects.find((project) => project.id === selectedProjectId)?.title ?? 'Dự án' } : undefined}
+              onSettings={() => navigateSection('settings')} onApplied={(resource) => {
+              if (resource === 'profile') {
+                const expectedUserId = user.id;
+                void api<User>('/profile').then((updated) => {
+                  if (activeUserIdRef.current === expectedUserId) setUser(updated);
+                }).catch((error: unknown) => showNotice({ message: error instanceof Error ? error.message : 'Không tải được hồ sơ.', type: 'error' }));
+              } else {
+                if (['availability', 'study-feedback', 'task-blocks', 'projects', 'project-tasks', 'tasks', 'courses'].includes(resource)) {
+                  setPlanningRevision((revision) => revision + 1);
+                }
+                void loadData();
+              }
+            }} />
             <GlobalSearch
               projects={projects}
               courses={courses}
@@ -936,11 +979,11 @@ export default function App() {
               onTargetOpened={() => setSearchTarget(null)}
               remindersEnabled={remindersEnabled}
               onToggleReminders={toggleReminders}
+              view={projectView}
+              onViewChange={(view) => navigateSection('projects', { projectView: view, projectId: null, taskId: null })}
               selectedProjectId={selectedProjectId}
               selectedTaskId={selectedTaskId}
-              onSelectProject={(pId, tId) =>
-                navigateSection('projects', { projectId: pId, taskId: tId ?? null, replace: true })
-              }
+              onSelectProject={selectProject}
             />
           )}
           {section === 'study' && (
@@ -972,15 +1015,13 @@ export default function App() {
                   assignmentId: opts.assignmentId ?? null,
                   examId: opts.examId ?? null,
                   noteId: opts.noteId ?? null,
-                  replace: true,
                 })
               }
               openTarget={searchTarget}
               onTargetOpened={() => setSearchTarget(null)}
-              gpa={dataReady ? <GpaPage courses={courses}
-                onOpenCourses={() => navigateSection('study', { studyTab: 'courses' })} /> : null}
               recommendations={<StudyRecommendations
-                courses={courses} assignments={assignments} exams={exams} logs={studyLogs}
+                courses={courses} assignments={assignments} exams={exams}
+                planningRevision={planningRevision}
                 sessions={courseSessions} schedule={scheduleItems} personalTasks={personalTasks} onNotice={showNotice}
                 onOpenCourses={() => navigateSection('study', { studyTab: 'courses' })}
                 onOpenAvailability={() => navigateSection('calendar', { calendarAvailability: true })}
@@ -993,6 +1034,7 @@ export default function App() {
           {section === 'calendar' && dataReady && (
             <TimetablePage
               key={user.id}
+              planningRevision={planningRevision}
               courses={courses}
               sessions={courseSessions}
               schedule={scheduleItems}
@@ -1005,7 +1047,7 @@ export default function App() {
               showAvailability={calendarAvailability}
               onAvailabilityChange={(show) => navigateSection('calendar', { calendarAvailability: show, replace: true })}
               onNotice={showNotice}
-              onOpenCourse={(courseId) => navigateSection('study', { studyTab: 'courses', courseId: courseId ?? null })}
+              onOpenCourse={(courseId) => navigateSection('study', { studyTab: courseId ? 'course-schedule' : 'courses', courseId: courseId ?? null })}
               onOpenTask={(projectId, taskId) => projectId
                 ? navigateSection('projects', { projectId, taskId })
                 : navigateSection('work', { workView: personalTasks.find((task) => task.id === taskId)?.category ?? 'personal', taskId })}
@@ -1037,6 +1079,8 @@ export default function App() {
               }}
             />
           )}
+          {section === 'settings' && <SettingsPage key={user.id} dark={theme === 'dark'} reminders={remindersEnabled}
+            onTheme={(enabled) => setTheme(enabled ? 'dark' : 'light')} onReminders={toggleReminders} />}
         </div>
       </main>
     </div>
@@ -1287,7 +1331,7 @@ function Overview({
 }) {
   const firstName = user.fullName.split(' ')[0];
   const gpa = calculateGpa(courses);
-  const unifiedStudy = useMemo(() => computeUnifiedStudyHours(courses, studyLogs, true), [courses, studyLogs]);
+  const totalStudyHours = useMemo(() => computeUnifiedStudyHours(courses, studyLogs), [courses, studyLogs]);
   const pendingAssignments = useMemo(
     () =>
       [...assignments]
@@ -1440,10 +1484,7 @@ function Overview({
             <span>
               <Clock3 size={15} /> Giờ học tích lũy
             </span>
-            <strong>
-              {unifiedStudy.totalHours}
-              <small> / {unifiedStudy.targetHours} giờ</small>
-            </strong>
+            <strong>{totalStudyHours} <small>giờ</small></strong>
           </div>
           <button className="focus-link" onClick={() => onNavigate('study')}>
             Mở không gian học tập <ArrowRight size={15} />
@@ -1566,12 +1607,16 @@ function ProjectRow({
   project: Project;
   tasks: ProjectTask[];
   index: number;
-  onOpen?: () => void;
+  onOpen: () => void;
 }) {
   const completed = tasks.filter((t) => t.isDone || t.status === 'done').length;
   const displayedProgress = tasks.length ? Math.round((completed / tasks.length) * 100) : Math.round(project.progress ?? 0);
   return (
-    <div className="project-row" onClick={onOpen} style={onOpen ? { cursor: 'pointer' } : undefined}>
+    <a className="project-row overview-project-link" href={buildUrl('projects', { projectId: project.id })} onClick={(event) => {
+      if (event.button !== 0 || event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return;
+      event.preventDefault();
+      onOpen();
+    }}>
       <div className={`project-symbol project-symbol-${index % 3}`}>
         <Compass size={18} />
       </div>
@@ -1601,7 +1646,7 @@ function ProjectRow({
           <span style={{ width: `${displayedProgress}%` }} />
         </div>
       </div>
-    </div>
+    </a>
   );
 }
 

@@ -1,5 +1,6 @@
 ﻿import express from 'express';
 import cors from 'cors';
+import { createAssistant } from './assistant/index.js';
 import { config } from './config.js';
 import { db } from './database/index.js';
 import { KyselyLifeOsRepository } from './infrastructure/repositories/kysely-lifeos-repository.js';
@@ -20,10 +21,17 @@ const calendar = new TaskCalendarRepository();
 export const app = express();
 app.disable('x-powered-by');
 app.use(cors({ origin: config.CORS_ORIGIN.split(',').map((origin) => origin.trim()), methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+app.use('/api/assistant', createAssistant(services, calendar));
 app.use(express.json({ limit: '1mb' }));
 app.get('/health', async (_request, response, next) => {
-  try { await db.selectNoFrom((eb) => eb.val(1).as('ok')).executeTakeFirst(); response.json({ status: 'ok', database: 'postgres' }); }
-  catch (error) { next(error); }
+  try {
+    await db.selectNoFrom((eb) => eb.val(1).as('ok')).executeTakeFirst();
+    const revision = process.env.RENDER_GIT_COMMIT;
+    if (revision) response.set('X-LifeOS-Revision', revision);
+    response.json({ status: 'ok', database: 'postgres' });
+  } catch (error) {
+    next(error);
+  }
 });
 app.use('/api/auth', createAuthRouter(services));
 app.use('/api/profile', createProfileRouter(services));

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import type { CalendarTime, ScheduleItem } from './api';
 import { parseTimeRange, timeLabel } from './studyPlanning';
@@ -11,16 +11,17 @@ export function CalendarDialog({ title, busy = false, wide = false, onClose, chi
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
     return () => dialog?.close();
   }, []);
   return (
-    <dialog ref={ref} className="calendar-dialog planning-page" data-wide={wide || undefined} aria-labelledby="calendar-dialog-title"
+    <dialog ref={ref} className="calendar-dialog planning-page" data-wide={wide || undefined} aria-labelledby={titleId}
       onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
       <div className="planning-section-head">
-        <h2 id="calendar-dialog-title">{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <button type="button" className="icon-button" disabled={busy} aria-label="Đóng" onClick={onClose}><X size={18} /></button>
       </div>
       {children}

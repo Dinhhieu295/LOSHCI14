@@ -1,4 +1,4 @@
-import { sql, type Kysely } from 'kysely';
+import { sql, type Kysely, type Transaction } from 'kysely';
 import { db } from '../../database/index.js';
 import type {
   AccountUser, AvailabilityWindow, CalendarTime, PersonalState, Project, ProjectInput, ProjectPatch, SessionRecord,
@@ -7,11 +7,12 @@ import type {
 import type { LifeOsRepositories, TaskScope } from '../../application/ports/repositories.js';
 import { ApplicationError } from '../../application/errors.js';
 import type { Database } from '../../database/types.js';
+import { closeProjectTimer } from './project-resources-repository.js';
 import { assertCalendarAvailable, lockCalendar } from './task-calendar-repository.js';
 
 const studyResources = {
-  courses: { table: 'courses', fields: { name: 'name', code: 'code', instructor: 'instructor', credits: 'credits', semester: 'semester', progress: 'progress', score10: 'score10', grade: 'grade', attendance: 'attendance', studyHours: 'study_hours', aimStudyHours: 'aim_study_hours', color: 'color', status: 'status' } },
-  assignments: { table: 'assignments', fields: { title: 'title', courseId: 'course_id', priority: 'priority', deadline: 'deadline', status: 'status', prevStatus: 'prev_status', estimatedTime: 'estimated_time' } },
+  courses: { table: 'courses', fields: { name: 'name', code: 'code', instructor: 'instructor', credits: 'credits', semester: 'semester', progress: 'progress', score10: 'score10', grade: 'grade', gradeComponents: 'grade_components_json', attendance: 'attendance', absences: 'absences', studyHours: 'study_hours', aimStudyHours: 'aim_study_hours', color: 'color', status: 'status' } },
+  assignments: { table: 'assignments', fields: { title: 'title', courseId: 'course_id', priority: 'priority', deadline: 'deadline', status: 'status', prevStatus: 'prev_status', estimatedTime: 'estimated_time', dependencies: 'dependencies_json' } },
   exams: { table: 'exams', fields: { title: 'title', courseId: 'course_id', date: 'date', type: 'type', weight: 'weight', prepProgress: 'prep_progress' } },
   notes: { table: 'notes', fields: { title: 'title', courseId: 'course_id', content: 'content', date: 'note_date', tags: 'tags_json' } },
   schedule: { table: 'schedule_items', fields: { title: 'title', time: 'time', color: 'color', date: 'schedule_date' } },
@@ -68,7 +69,14 @@ function mapStudyItem(resource: StudyResourceName, row: Record<string, any>): St
   const item: Record<string, unknown> = { id: row.id, createdAt: row.created_at, updatedAt: row.updated_at };
   for (const [apiField, column] of Object.entries(definition.fields)) {
     const value = row[column];
-    item[apiField] = column === 'tags_json' ? JSON.parse(value) : value;
+    item[apiField] = column.endsWith('_json') ? JSON.parse(value) : value;
+  }
+  if (resource === 'courses') {
+    if (typeof row.timer_seconds === 'number') item.trackedSeconds = row.timer_seconds;
+    const components = item.gradeComponents as { score10: number | null; weight: number }[];
+    item.grade = 'N/A';
+    item.score10 = !components.length || components.some(({ score10, weight }) => score10 === null && weight > 0) ? null
+      : Math.round(components.reduce((sum, { score10, weight }) => sum + (score10 ?? 0) * weight, 0) + 1e-8) / 100;
   }
   return item as StudyItem;
 }
@@ -288,41 +296,137 @@ export class KyselyLifeOsRepository implements LifeOsRepositories {
 
   async deleteTask(scope: TaskScope, taskId: string): Promise<boolean> {
     const owner = taskOwner(scope);
-    const result = await db.deleteFrom('tasks').where('id', '=', taskId).where(owner.column, '=', owner.id).executeTakeFirst();
-    return Boolean(result.numDeletedRows);
+    const remove = async (connection: Kysely<Database>) => {
+      const result = await connection.deleteFrom('tasks').where('id', '=', taskId).where(owner.column, '=', owner.id).executeTakeFirst();
+      return Boolean(result.numDeletedRows);
+    };
+    if (!('projectId' in scope)) return remove(db);
+    return db.transaction().execute(async (trx) => {
+      await trx.selectFrom('projects').select('id').where('id', '=', scope.projectId).forUpdate().executeTakeFirst();
+      const active = await trx.selectFrom('project_timer_sessions').select(['id', 'started_at as startedAt'])
+        .where('project_id', '=', scope.projectId).where('task_id', '=', taskId).where('stopped_at', 'is', null).executeTakeFirst();
+      if (active) await closeProjectTimer(trx, active, new Date());
+      return remove(trx);
+    });
   }
 
   async listStudyItems(userId: string, resource: StudyResourceName): Promise<StudyItem[]> {
+    if (resource === 'courses') {
+      const courses = await db.selectFrom('courses').selectAll('courses').select((eb) => eb.selectFrom('project_timer_sessions')
+        .select(sql<number>`coalesce(sum(duration_seconds), 0)::double precision`.as('seconds'))
+        .whereRef('project_timer_sessions.course_id', '=', 'courses.id').as('timer_seconds'))
+        .where('courses.user_id', '=', userId).orderBy('courses.created_at', 'desc').execute();
+      return courses.map((course) => mapStudyItem('courses', course));
+    }
     const table = studyResources[resource].table;
     const rows = await (db as any).selectFrom(table).selectAll().where('user_id', '=', userId).orderBy('created_at', 'desc').execute();
     return rows.map((row: Record<string, any>) => mapStudyItem(resource, row));
+  }
+
+  private async checkAssignmentDependencies(trx: Transaction<Database>, userId: string, courseId: string | null, id: string, dependencies: string[]) {
+    if (!dependencies.length) return;
+    const rows = courseId ? await trx.selectFrom('assignments').select(['id', 'dependencies_json'])
+      .where('user_id', '=', userId).where('course_id', '=', courseId).execute() : [];
+    const graph = new Map(rows.map((row) => [row.id, JSON.parse(row.dependencies_json) as string[]]));
+    if (dependencies.some((dependency) => dependency === id || !graph.has(dependency))) {
+      throw new ApplicationError('INVALID_TASK_DEPENDENCY', 'Bài tập phụ thuộc phải thuộc cùng môn học.');
+    }
+    const seen = new Set<string>();
+    const pending = [...dependencies];
+    while (pending.length) {
+      const dependency = pending.pop()!;
+      if (dependency === id) throw new ApplicationError('INVALID_TASK_DEPENDENCY', 'Phụ thuộc tạo thành vòng lặp giữa các bài tập.');
+      if (seen.has(dependency)) continue;
+      seen.add(dependency);
+      pending.push(...(graph.get(dependency) ?? []));
+    }
+  }
+
+  private async detachAssignment(trx: Transaction<Database>, userId: string, courseId: string, id: string, now: string) {
+    await trx.selectFrom('courses').select('id').where('id', '=', courseId).where('user_id', '=', userId).forUpdate().executeTakeFirst();
+    const timers = trx.selectFrom('project_timer_sessions').where('course_id', '=', courseId).where('assignment_id', '=', id);
+    const active = await timers.select(['id', 'started_at as startedAt']).where('stopped_at', 'is', null).executeTakeFirst();
+    if (active) await closeProjectTimer(trx, active, new Date(), 'assignment_id');
+    await trx.updateTable('project_timer_sessions').set({ assignment_id: null }).where('course_id', '=', courseId)
+      .where('assignment_id', '=', id).execute();
+    const related = await trx.selectFrom('assignments').select(['id', 'dependencies_json']).where('user_id', '=', userId)
+      .where('course_id', '=', courseId).where('id', '!=', id).execute();
+    for (const row of related) {
+      const dependencies = JSON.parse(row.dependencies_json) as string[];
+      if (dependencies.includes(id)) {
+        await trx.updateTable('assignments').set({ dependencies_json: JSON.stringify(dependencies.filter((dependency) => dependency !== id)), updated_at: now })
+          .where('id', '=', row.id).execute();
+      }
+    }
   }
 
   async createStudyItem(userId: string, resource: StudyResourceName, item: Record<string, unknown>, id: string, now: string): Promise<StudyItem> {
     const definition = studyResources[resource];
     const values: Record<string, unknown> = { id, user_id: userId, created_at: now, updated_at: now };
     for (const [apiKey, column] of Object.entries(definition.fields)) {
-      if (apiKey in item) values[column] = column === 'tags_json' ? JSON.stringify(item[apiKey]) : item[apiKey];
+      if (apiKey in item) values[column] = column.endsWith('_json') ? JSON.stringify(item[apiKey]) : item[apiKey];
     }
-    const row = await (db as any).insertInto(definition.table).values(values).returningAll().executeTakeFirstOrThrow();
-    return mapStudyItem(resource, row);
+    const create = async (connection: Kysely<Database>) => {
+      const row = await (connection as any).insertInto(definition.table).values(values).returningAll().executeTakeFirstOrThrow();
+      return mapStudyItem(resource, row);
+    };
+    if (resource !== 'assignments' || !Array.isArray(item.dependencies) || !item.dependencies.length) return create(db);
+    return db.transaction().execute(async (trx) => {
+      await lockCalendar(trx, userId);
+      await this.checkAssignmentDependencies(trx, userId, typeof item.courseId === 'string' ? item.courseId : null, id, item.dependencies as string[]);
+      return create(trx);
+    });
   }
 
   async updateStudyItem(userId: string, resource: StudyResourceName, id: string, patch: Record<string, unknown>, now: string): Promise<StudyItem | undefined> {
     const definition = studyResources[resource];
     const updates: Record<string, unknown> = { updated_at: now };
     for (const [apiKey, column] of Object.entries(definition.fields)) {
-      if (apiKey in patch) updates[column] = column === 'tags_json' ? JSON.stringify(patch[apiKey]) : patch[apiKey];
+      if (apiKey in patch) updates[column] = column.endsWith('_json') ? JSON.stringify(patch[apiKey]) : patch[apiKey];
     }
-    const row = await (db as any).updateTable(definition.table).set(updates).where('id', '=', id)
-      .where('user_id', '=', userId).returningAll().executeTakeFirst();
-    return row ? mapStudyItem(resource, row) : undefined;
+    const update = async (connection: Kysely<Database>) => {
+      const row = await (connection as any).updateTable(definition.table).set(updates).where('id', '=', id)
+        .where('user_id', '=', userId).returningAll().executeTakeFirst();
+      return row ? mapStudyItem(resource, row) : undefined;
+    };
+    if (resource === 'courses' && 'status' in patch) {
+      return db.transaction().execute(async (trx) => {
+        await lockCalendar(trx, userId);
+        return update(trx);
+      });
+    }
+    if (resource !== 'assignments' || (!('courseId' in patch) && !('dependencies' in patch))) return update(db);
+    return db.transaction().execute(async (trx) => {
+      await lockCalendar(trx, userId);
+      const assignment = await trx.selectFrom('assignments').select('course_id').where('id', '=', id).where('user_id', '=', userId).executeTakeFirst();
+      if (!assignment) return undefined;
+      const courseId = 'courseId' in patch ? typeof patch.courseId === 'string' ? patch.courseId : null : assignment.course_id;
+      const moving = courseId !== assignment.course_id;
+      if (Array.isArray(patch.dependencies)) await this.checkAssignmentDependencies(trx, userId, courseId, id, patch.dependencies as string[]);
+      else if (moving) updates.dependencies_json = '[]';
+      if (moving && assignment.course_id) await this.detachAssignment(trx, userId, assignment.course_id, id, now);
+      return update(trx);
+    });
   }
 
   async deleteStudyItem(userId: string, resource: StudyResourceName, id: string): Promise<boolean> {
-    const result = await (db as any).deleteFrom(studyResources[resource].table)
-      .where('id', '=', id).where('user_id', '=', userId).executeTakeFirst();
-    return Boolean(result.numDeletedRows);
+    const remove = async (connection: Kysely<Database>) => {
+      const result = await (connection as any).deleteFrom(studyResources[resource].table)
+        .where('id', '=', id).where('user_id', '=', userId).executeTakeFirst();
+      return Boolean(result.numDeletedRows);
+    };
+    if (resource !== 'assignments' && resource !== 'courses') return remove(db);
+    return db.transaction().execute(async (trx) => {
+      await lockCalendar(trx, userId);
+      if (resource === 'assignments') {
+        const assignment = await trx.selectFrom('assignments').select('course_id').where('id', '=', id).where('user_id', '=', userId).executeTakeFirst();
+        if (assignment?.course_id) await this.detachAssignment(trx, userId, assignment.course_id, id, new Date().toISOString());
+      } else {
+        await trx.selectFrom('courses').select('id').where('id', '=', id).where('user_id', '=', userId).forUpdate().executeTakeFirst();
+        await trx.updateTable('assignments').set({ dependencies_json: '[]' }).where('course_id', '=', id).where('user_id', '=', userId).execute();
+      }
+      return remove(trx);
+    });
   }
 
   async ownsCourse(userId: string, courseId: string): Promise<boolean> {

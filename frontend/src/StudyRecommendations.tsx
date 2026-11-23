@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   api, type Assignment, type CalendarTaskBlock, type Course, type CourseSession, type Exam,
-  type NoticeHandler, type PlanningSettings, type ProjectTask, type ScheduleItem, type StudyLog, type StudyPreference,
+  type NoticeHandler, type PlanningSettings, type ProjectTask, type ScheduleItem, type StudyPreference,
 } from './api';
 import { dateLabel, defaultAvailability, getFreeDays, recommendStudy, timeLabel, type FreeDay } from './studyPlanning';
 import { datesFrom, fixedTaskTimes } from './taskCalendar';
@@ -11,10 +11,10 @@ type Props = {
   courses: Course[];
   assignments: Assignment[];
   exams: Exam[];
-  logs: StudyLog[];
   sessions: CourseSession[];
   schedule: ScheduleItem[];
   personalTasks: ProjectTask[];
+  planningRevision: number;
   onNotice: NoticeHandler;
   onOpenCourses: () => void;
   onOpenAvailability: () => void;
@@ -34,7 +34,7 @@ export default function StudyRecommendations(props: Props) {
       () => { if (active) setError('Không tải được gợi ý học.'); },
     );
     return () => { active = false; };
-  }, [attempt]);
+  }, [attempt, props.planningRevision]);
 
   if (!settings) return <section className="panel planning-panel">
     {error ? <><p role="alert">{error}</p><button className="soft-button" onClick={() => {
@@ -73,11 +73,10 @@ export default function StudyRecommendations(props: Props) {
     pendingCourse={pendingCourse} onFeedback={saveFeedback} /></div>;
 }
 
-function Recommendations({ courses, assignments, exams, logs, days, feedback, pendingCourse, onFeedback, onOpenCourses, onOpenAvailability }: {
+function Recommendations({ courses, assignments, exams, days, feedback, pendingCourse, onFeedback, onOpenCourses, onOpenAvailability }: {
   courses: Course[];
   assignments: Assignment[];
   exams: Exam[];
-  logs: StudyLog[];
   days: FreeDay[];
   feedback: Record<string, StudyPreference>;
   pendingCourse: string | null;
@@ -85,13 +84,13 @@ function Recommendations({ courses, assignments, exams, logs, days, feedback, pe
   onOpenCourses: () => void;
   onOpenAvailability: () => void;
 }) {
-  const plan = recommendStudy(courses, assignments, exams, logs, days, feedback);
+  const plan = recommendStudy(courses, assignments, exams, days, feedback);
   return (
     <section className="panel planning-panel">
       <div className="planning-section-head">
         <div>
           <h2>Môn nên ưu tiên</h2>
-          <p>Gợi ý dựa trên hạn bài tập, kỳ thi, mục tiêu và giờ trống trong 7 ngày tới.</p>
+          <p>Gợi ý dựa trên hạn bài tập, kỳ thi và giờ trống trong 7 ngày tới.</p>
         </div>
         {plan.length > 0 && <button className="soft-button" onClick={onOpenAvailability}>Xem giờ trống</button>}
       </div>

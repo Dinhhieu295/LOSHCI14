@@ -3,9 +3,11 @@ import { z } from 'zod';
 import type { AppServices } from '../application/services/index.js';
 import { asyncHandler } from '../http/async-handler.js';
 import { HttpError } from '../http/errors.js';
+import { ProjectResourcesRepository } from '../infrastructure/repositories/project-resources-repository.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import { createProjectResourcesRouter } from './project-resources.js';
 
-const projectSchema = z.object({
+export const projectSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(10000).default(''),
   startDate: z.iso.date().nullable().default(null),
@@ -18,7 +20,7 @@ const projectSchema = z.object({
   isPinned: z.boolean().default(false),
   members: z.array(z.string().max(120)).max(100).default([]),
 });
-const projectPatch = projectSchema.partial();
+export const projectPatch = projectSchema.partial();
 
 export const taskSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -38,7 +40,7 @@ export const taskSchema = z.object({
   isMilestone: z.boolean().default(false),
   dependencies: z.array(z.string().max(36)).max(100).default([]),
 });
-const taskPatch = taskSchema.partial();
+export const taskPatch = taskSchema.partial();
 
 export function pickPresentKeys<T extends Record<string, unknown>>(parsed: T, rawBody: unknown): Partial<T> {
   if (!rawBody || typeof rawBody !== 'object') return parsed;
@@ -56,6 +58,7 @@ const param = (value: string | string[] | undefined) => {
 export function createProjectsRouter(services: AppServices) {
   const router = Router();
   router.use(requireAuth(services.auth));
+  router.use('/:projectId', createProjectResourcesRouter(new ProjectResourcesRepository()));
   router.get('/', asyncHandler(async (req, res) => res.json(await services.projects.list(req.userId!))));
   router.post(
     '/',

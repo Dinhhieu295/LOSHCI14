@@ -28,6 +28,7 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       DATABASE_URL: ${DATABASE_URL:-postgresql://lifeos:lifeos@db:5432/lifeos}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      ASSISTANT_SETTINGS_KEY: ${ASSISTANT_SETTINGS_KEY:-}
     depends_on:
       db:
         condition: service_healthy

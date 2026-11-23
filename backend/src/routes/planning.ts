@@ -13,8 +13,8 @@ const availability = z.array(z.object({
   .max(7)
   .refine((windows) => new Set(windows.map((window) => window.weekday)).size === windows.length,
     'Mỗi ngày chỉ được lưu một khung giờ.');
-const availabilitySchema = z.object({ windows: availability });
-const feedbackSchema = z.object({ preference: z.enum(['more', 'less']).nullable() });
+export const availabilitySchema = z.object({ windows: availability });
+export const feedbackSchema = z.object({ preference: z.enum(['more', 'less']).nullable() });
 
 export function createPlanningRouter(services: AppServices) {
   const router = Router();

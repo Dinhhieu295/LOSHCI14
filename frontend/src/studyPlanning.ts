@@ -1,4 +1,4 @@
-import type { Assignment, AvailabilityWindow, CalendarTime, Course, CourseSession, Exam, ScheduleItem, StudyLog, StudyPreference } from './api';
+import type { Assignment, AvailabilityWindow, CalendarTime, Course, CourseGradeComponent, CourseSession, Exam, ScheduleItem, StudyPreference } from './api';
 
 const gradeScale = [
   { minimum: 9, grade: 'A+', points: 4 },
@@ -12,21 +12,30 @@ const gradeScale = [
   { minimum: 0, grade: 'F', points: 0 },
 ];
 
-export { gradeScale };
-
-export function gradePoints(score: number | null | undefined, grade: string) {
-  if (score != null && Number.isFinite(score) && score >= 0 && score <= 10) {
-    return gradeScale.find((band) => score >= band.minimum)?.points ?? null;
-  }
-  return gradeScale.find((band) => band.grade === grade.trim().toUpperCase())?.points ?? null;
+export function calculateCourseScore(components: CourseGradeComponent[]) {
+  if (components.length === 0) return null;
+  const totalWeight = components.reduce((sum, { weight }) => sum + weight, 0);
+  if (Math.abs(totalWeight - 100) >= 0.000001 || components.some(({ score10, weight }) =>
+    !(weight >= 0 && weight <= 100) || (weight > 0 && (score10 == null || !(score10 >= 0 && score10 <= 10))),
+  )) return null;
+  const weightedSum = components.reduce((sum, { score10, weight }) => sum + (weight > 0 ? (score10 ?? 0) * weight : 0), 0);
+  return Math.round(weightedSum + 1e-8) / 100;
 }
 
-export function calculateGpa(courses: Course[], scenarios: Record<string, number> = {}) {
+function courseGradeBand(score: number | null) {
+  return score != null && score >= 0 && score <= 10 ? gradeScale.find((band) => score >= band.minimum) : undefined;
+}
+
+export function courseLetterGrade(score: number | null) {
+  return courseGradeBand(score)?.grade ?? null;
+}
+
+export function calculateGpa(courses: Course[]) {
   let credits = 0;
   let weighted = 0;
   for (const course of courses) {
-    const points = gradePoints(scenarios[course.id] ?? course.score10, course.grade);
-    if (points === null || course.credits <= 0) continue;
+    const points = courseGradeBand(course.score10)?.points;
+    if (points === undefined || course.credits <= 0) continue;
     credits += course.credits;
     weighted += course.credits * points;
   }
@@ -108,7 +117,6 @@ export function recommendStudy(
   courses: Course[],
   assignments: Assignment[],
   exams: Exam[],
-  logs: StudyLog[],
   days: FreeDay[],
   feedback: Record<string, StudyPreference>,
 ) {
@@ -119,11 +127,8 @@ export function recommendStudy(
       .sort((a, b) => a.deadline.localeCompare(b.deadline))[0];
     const nextExam = exams.filter((item) => item.courseId === course.id && item.date.slice(0, 10) >= today)
       .sort((a, b) => a.date.localeCompare(b.date))[0];
-    const logged = logs.filter((log) => log.courseId === course.id)
-      .reduce((minutes, log) => minutes + log.durationMinutes, 0);
-    const gap = Math.max(0, Math.round((course.aimStudyHours ?? 0) * 60 - Math.max(logged, (course.studyHours ?? 0) * 60)));
     const reasons: string[] = [];
-    let priority = Math.round((100 - course.progress) / 5) + Math.min(20, Math.round(gap / 15));
+    let priority = Math.round((100 - course.progress) / 5);
     const assignmentDate = nextAssignment?.deadline.slice(0, 10);
     const examDate = nextExam?.date.slice(0, 10);
     const upcomingAssignment = nextAssignment && assignmentDate && assignmentDate <= lastDay;
@@ -137,15 +142,13 @@ export function recommendStudy(
       priority += 30 + Math.round((100 - nextExam.prepProgress) / 10);
       reasons.push(`Kỳ thi ${dateLabel(nextExam.date)} · ôn tập ${nextExam.prepProgress}%`);
     }
-    if (gap > 0) reasons.push(`Còn ${Math.ceil(gap / 60)} giờ tới mục tiêu`);
     if (!reasons.length) reasons.push(`Tiến độ môn ${course.progress}%`);
     const preference = feedback[course.id];
     if (preference) {
       priority += preference === 'more' ? 40 : -40;
       reasons.push(preference === 'more' ? 'Bạn muốn học thêm môn này' : 'Bạn muốn giảm thời lượng môn này');
     }
-    const target = Math.min(120, Math.max(50, Math.ceil(gap / 30) * 30));
-    const minutes = preference === 'more' ? target + 40 : preference === 'less' ? Math.max(25, target - 30) : target;
+    const minutes = preference === 'more' ? 100 : preference === 'less' ? 30 : 60;
     const due = [upcomingAssignment ? assignmentDate : undefined, upcomingExam ? examDate : undefined]
       .filter((value): value is string => Boolean(value)).sort()[0];
     return { course, priority, due, reasons, minutes, blocks: [] as { date: string; start: number; end: number }[] };

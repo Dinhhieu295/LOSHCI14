@@ -3,7 +3,7 @@ export type ApplicationErrorCode =
   | 'USER_NOT_FOUND' | 'PROJECT_NOT_FOUND' | 'TASK_NOT_FOUND'
   | 'RESOURCE_NOT_FOUND' | 'RESOURCE_ITEM_NOT_FOUND' | 'INVALID_COURSE' | 'INVALID_TASK_DEPENDENCY'
   | 'INVALID_CURRENT_PASSWORD' | 'EMPTY_UPDATE'
-  | 'ALREADY_EXISTS' | 'CALENDAR_CONFLICT' | 'WEEKLY_TIME_REQUIRED';
+  | 'ALREADY_EXISTS' | 'CALENDAR_CONFLICT' | 'WEEKLY_TIME_REQUIRED' | 'PROJECT_TIMER_CONFLICT';
 
 export class ApplicationError extends Error {
   constructor(public readonly code: ApplicationErrorCode, message: string) {

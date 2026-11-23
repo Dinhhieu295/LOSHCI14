@@ -6,15 +6,15 @@ import { requireAuth } from '../middleware/require-auth.js';
 import { calendarTimeSchema } from './calendar.js';
 import { pickPresentKeys, taskSchema } from './projects.js';
 
-const personalTaskSchema = taskSchema.pick({ title: true, priority: true, dueDate: true, estimate: true, status: true, isDone: true }).extend({
+export const personalTaskSchema = taskSchema.pick({ title: true, priority: true, dueDate: true, estimate: true, status: true, isDone: true }).extend({
   status: z.enum(['todo', 'in-progress', 'done']).default('todo'),
   priority: z.enum(['Low', 'Medium', 'High']).default('Medium'),
   category: z.enum(['employment', 'personal']).default('personal'),
   fixedSlot: calendarTimeSchema.nullable().optional(),
 });
-const personalTaskPatch = personalTaskSchema.partial();
+export const personalTaskPatch = personalTaskSchema.partial();
 
-function parsePersonalTask(body: unknown) {
+export function parsePersonalTask(body: unknown) {
   const { category, fixedSlot, ...input } = personalTaskSchema.parse(body);
   return { ...taskSchema.parse(input), category, fixedSlot };
 }

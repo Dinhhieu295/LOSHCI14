@@ -88,7 +88,7 @@
 .course-card-title { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
 .course-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .course-card-title > strong, .course-title-row > strong { overflow: hidden; color: #344236; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.course-archived-pill { padding: 2px 7px; border-radius: 99px; background: #eee; color: #666; font-size: 10px; font-weight: 700; }
+.course-completed-pill { padding: 2px 7px; border-radius: 99px; background: #eee; color: #666; font-size: 10px; font-weight: 700; }
 .course-card-title > span { overflow: hidden; color: #879187; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .course-card-title > small { color: #849082; font-size: 9px; }
 .course-card-details { padding: 0 14px 14px; border-top: 1px solid #edf0eb; }

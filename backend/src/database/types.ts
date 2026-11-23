@@ -1,5 +1,7 @@
 import type { Generated } from 'kysely';
 
+export type AiProvider = 'openai' | 'gemini' | 'groq';
+
 export interface UsersTable {
   id: string;
   email: string;
@@ -80,7 +82,9 @@ export interface CoursesTable {
   progress: number;
   score10: number | null;
   grade: string;
+  grade_components_json: string;
   attendance: number;
+  absences: number | null;
   study_hours: number;
   aim_study_hours: number;
   color: string;
@@ -99,6 +103,7 @@ export interface AssignmentsTable {
   status: string;
   prev_status: string | null;
   estimated_time: string;
+  dependencies_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -188,6 +193,17 @@ export interface Database {
   personal_states: PersonalStatesTable;
   study_availability: { user_id: string; windows_json: string };
   study_feedback: { user_id: string; course_id: string; preference: 'more' | 'less' };
+  assistant_settings: {
+    user_id: string;
+    provider: AiProvider;
+    model: string;
+    encrypted_key: string;
+  };
+  assistant_conversations: {
+    user_id: string;
+    scope: string;
+    messages_json: string;
+  };
   task_schedule_blocks: {
     id: string;
     user_id: string;
@@ -195,6 +211,28 @@ export interface Database {
     scheduled_date: string;
     start_minute: number;
     end_minute: number;
+  };
+  project_task_files: {
+    id: string;
+    task_id: string | null;
+    assignment_id: string | null;
+    project_id: string | null;
+    course_id: string | null;
+    name: string;
+    size_bytes: number;
+    contents: Buffer;
+    created_at: string;
+  };
+  project_timer_sessions: {
+    id: string;
+    project_id: string | null;
+    course_id: string | null;
+    task_id: string | null;
+    assignment_id: string | null;
+    task_title: string | null;
+    started_at: string;
+    stopped_at: string | null;
+    duration_seconds: number | null;
   };
 }
 

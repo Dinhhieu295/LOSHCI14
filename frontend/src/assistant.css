@@ -1,0 +1,176 @@
+.assistant-launch {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 9px;
+  white-space: nowrap;
+}
+
+.lifeos-assistant, .lifeos-settings {
+  --ai-surface: #fff;
+  --ai-canvas: #eff4f1;
+  --ai-field: #fff;
+  --ai-text: #1e2d26;
+  --ai-muted: #4c5e55;
+  --ai-line: #bdcbc3;
+  --ai-control-line: #798c82;
+  --ai-accent: #1e6248;
+  --ai-accent-hover: #184e39;
+  --ai-on-accent: #fff;
+  --ai-tint: #e1f1e7;
+  --ai-error-bg: #fcebe8;
+  --ai-error-text: #8b2f29;
+  color: var(--ai-text);
+}
+
+:root[data-theme='dark'] :is(.lifeos-assistant, .lifeos-settings) {
+  --ai-surface: #1e2924;
+  --ai-canvas: #131b17;
+  --ai-field: #151e1a;
+  --ai-text: #edf4ef;
+  --ai-muted: #b7c9bf;
+  --ai-line: #44574d;
+  --ai-control-line: #778f81;
+  --ai-accent: #b8e7c9;
+  --ai-accent-hover: #d1f1db;
+  --ai-on-accent: #173528;
+  --ai-tint: #2a4539;
+  --ai-error-bg: #452925;
+  --ai-error-text: #ffbfb6;
+}
+
+.lifeos-assistant {
+  position: fixed;
+  inset: 12px 12px 12px auto;
+  width: min(440px, calc(100% - 24px));
+  height: min(780px, calc(100dvh - 24px));
+  max-width: none;
+  max-height: none;
+  margin: auto 0 auto auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--ai-line);
+  border-radius: 18px;
+  background: var(--ai-surface);
+  box-shadow: 0 16px 64px #0003;
+}
+
+.lifeos-assistant::backdrop { background: #101a2866; }
+.assistant-layout { display: flex; flex-direction: column; height: 100%; }
+.assistant-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--ai-line); }
+.assistant-header h2 { display: flex; gap: 8px; align-items: center; font-size: 18px; margin: 0; }
+.assistant-header h2 svg { color: var(--ai-accent); }
+.assistant-scroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; background: var(--ai-canvas); font-size: 15px; }
+.assistant-scroll > [role='status'] { color: var(--ai-muted); font-size: 13px; }
+.assistant-welcome p { margin-top: 0; line-height: 1.5; }
+.assistant-message, .assistant-draft {
+  border: 1px solid var(--ai-line);
+  border-radius: 12px;
+  background: var(--ai-surface);
+  padding: 10px 12px;
+  margin: 0 0 10px;
+}
+.assistant-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.assistant-message[data-role='user'] { margin-left: 24px; background: var(--ai-tint); }
+.assistant-draft h3 { color: var(--ai-accent); }
+.assistant-draft h3, .assistant-draft p { margin: 0 0 7px; overflow-wrap: anywhere; }
+.assistant-draft dl { margin: 0 0 10px; }
+.assistant-draft dl > div { display: grid; grid-template-columns: minmax(85px, 1fr) 2fr; gap: 8px; padding-block: 4px; }
+.assistant-draft dt { color: var(--ai-muted); font-weight: 600; }
+.assistant-draft dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.assistant-compose { display: grid; gap: 8px; border-top: 1px solid var(--ai-line); padding: 12px 16px 16px; }
+.assistant-compose > div { display: flex; align-items: flex-end; gap: 8px; }
+.assistant-label { font-size: 14px; font-weight: 650; }
+.assistant-compose textarea {
+  flex: 1;
+  min-width: 0;
+  max-height: 130px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+  color: var(--ai-text);
+  background: var(--ai-field);
+  border: 1px solid var(--ai-control-line);
+  border-radius: 10px;
+  padding: 8px;
+}
+.assistant-compose small { color: var(--ai-muted); font-size: 13px; line-height: 1.45; }
+.assistant-compose > div > :is(.icon-button, .primary-button) {
+  display: grid;
+  place-items: center;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+}
+@media (max-width: 670px) { .assistant-launch span { display: none; } }
+
+.lifeos-settings {
+  --plan-accent: var(--ai-accent);
+  max-width: 720px;
+}
+.lifeos-settings .planning-panel { background: var(--ai-surface); border-color: var(--ai-line); }
+.lifeos-settings h2 { display: flex; align-items: center; gap: 8px; }
+.lifeos-settings h2 svg { color: var(--ai-accent); }
+.lifeos-settings .planning-pill { color: var(--ai-accent); background: var(--ai-tint); font-size: 13px; font-weight: 650; }
+.lifeos-settings .planning-field { font-size: 14px; }
+.lifeos-settings .planning-panel p { color: var(--ai-muted); font-size: 14px; }
+.lifeos-settings .planning-field :is(input, select) {
+  min-height: 42px;
+  padding-inline: 10px;
+  background: var(--ai-field);
+  border-color: var(--ai-control-line);
+  color: var(--ai-text);
+}
+.ai-settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ai-settings-key { grid-column: 1 / -1; }
+.settings-preferences label { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.settings-preferences label span { flex: 1; }
+.settings-preferences label input { width: 18px; height: 18px; accent-color: var(--ai-accent); }
+.assistant-context { margin: 4px 0 0; color: var(--ai-muted); font-size: 13px; overflow-wrap: anywhere; }
+.assistant-welcome .assistant-actions { margin-bottom: 10px; }
+.assistant-clear-history { justify-self: start; }
+.assistant-compose .assistant-attachment { align-items: center; flex-wrap: wrap; font-size: 12px; }
+.assistant-attachment span { min-width: 0; overflow-wrap: anywhere; }
+
+:root :is(.lifeos-assistant, .lifeos-settings) .primary-button {
+  color: var(--ai-on-accent);
+  background: var(--ai-accent);
+  border: 1px solid transparent;
+}
+:is(.lifeos-assistant, .lifeos-settings) .primary-button:hover:not(:disabled) { background: var(--ai-accent-hover); }
+:root :is(.lifeos-assistant, .lifeos-settings) .soft-button {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ai-text);
+  background: var(--ai-field);
+  border-color: var(--ai-control-line);
+  text-decoration: none;
+}
+:root :is(.lifeos-assistant, .lifeos-settings) .soft-button:hover:not(:disabled) { background: var(--ai-tint); }
+:root .lifeos-assistant .icon-button { color: var(--ai-text); }
+.lifeos-assistant .assistant-compose .icon-button { border: 1px solid var(--ai-control-line); border-radius: 10px; }
+:root .lifeos-assistant .icon-button:hover:not(:disabled) { background: var(--ai-tint); color: var(--ai-text); }
+.lifeos-assistant .text-button { color: var(--ai-accent); text-decoration: underline; text-underline-offset: 3px; }
+:is(.lifeos-assistant, .lifeos-settings) :is(input, textarea)::placeholder { color: var(--ai-muted); opacity: 1; }
+:root :is(.lifeos-assistant, .lifeos-settings) :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--ai-accent);
+  outline-offset: 2px;
+}
+:root :is(.lifeos-assistant, .lifeos-settings) :is(.primary-button, .soft-button):disabled {
+  opacity: 1;
+  color: var(--ai-muted);
+  background: var(--ai-canvas);
+  border-color: var(--ai-line);
+  cursor: default;
+}
+:root :is(.lifeos-assistant, .lifeos-settings) .form-error[role='alert'] {
+  color: var(--ai-error-text);
+  background: var(--ai-error-bg);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 420px) { .ai-settings-form { grid-template-columns: 1fr; } }

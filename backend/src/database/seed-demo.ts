@@ -116,12 +116,15 @@ const projects: { project: ProjectInput; tasks: TaskInput[] }[] = [
 ];
 
 const courseMocks = [
-  { name: 'Lập trình cơ bản', code: 'UET-CS101', instructor: 'TS. Lê Minh', credits: 3, progress: 72, score10: 8.2, grade: 'B+', attendance: 95, studyHours: 24, aimStudyHours: 42, color: '#4f8cff' },
-  { name: 'Cấu trúc dữ liệu và giải thuật', code: 'UET-CS201', instructor: 'PGS. Nguyễn Hà', credits: 4, progress: 58, score10: null, grade: 'N/A', attendance: 92, studyHours: 31, aimStudyHours: 60, color: '#8b5cf6' },
-  { name: 'Cơ sở dữ liệu', code: 'UET-IS202', instructor: 'ThS. Trần Anh', credits: 3, progress: 64, score10: 7.8, grade: 'B', attendance: 100, studyHours: 20, aimStudyHours: 40, color: '#22c55e' },
-  { name: 'Mạng máy tính', code: 'UET-CE301', instructor: 'TS. Phạm Quân', credits: 3, progress: 40, score10: null, grade: 'N/A', attendance: 88, studyHours: 14, aimStudyHours: 45, color: '#f59e0b' },
-  { name: 'Trí tuệ nhân tạo', code: 'UET-AI401', instructor: 'PGS. Đỗ Lan', credits: 3, progress: 35, score10: null, grade: 'N/A', attendance: 96, studyHours: 18, aimStudyHours: 50, color: '#ec4899' },
-  { name: 'Kiến trúc máy tính', code: 'UET-CE204', instructor: 'TS. Vũ Hoàng', credits: 3, progress: 80, score10: 8.6, grade: 'A', attendance: 94, studyHours: 28, aimStudyHours: 36, color: '#06b6d4' },
+  { name: 'Lập trình cơ bản', code: 'UET-CS101', instructor: 'TS. Lê Minh', credits: 3, progress: 72, attendance: 95, aimStudyHours: 42, color: '#4f8cff',
+    gradeComponents: [{ name: 'Giữa kỳ', score10: 7, weight: 40 }, { name: 'Cuối kỳ', score10: 9, weight: 60 }] },
+  { name: 'Cấu trúc dữ liệu và giải thuật', code: 'UET-CS201', instructor: 'PGS. Nguyễn Hà', credits: 4, progress: 58, attendance: 92, aimStudyHours: 60, color: '#8b5cf6' },
+  { name: 'Cơ sở dữ liệu', code: 'UET-IS202', instructor: 'ThS. Trần Anh', credits: 3, progress: 64, attendance: 100, aimStudyHours: 40, color: '#22c55e',
+    gradeComponents: [{ name: 'Giữa kỳ', score10: 7.5, weight: 40 }, { name: 'Cuối kỳ', score10: 8, weight: 60 }] },
+  { name: 'Mạng máy tính', code: 'UET-CE301', instructor: 'TS. Phạm Quân', credits: 3, progress: 40, attendance: 88, aimStudyHours: 45, color: '#f59e0b' },
+  { name: 'Trí tuệ nhân tạo', code: 'UET-AI401', instructor: 'PGS. Đỗ Lan', credits: 3, progress: 35, attendance: 96, aimStudyHours: 50, color: '#ec4899' },
+  { name: 'Kiến trúc máy tính', code: 'UET-CE204', instructor: 'TS. Vũ Hoàng', credits: 3, progress: 80, attendance: 94, aimStudyHours: 36, color: '#06b6d4',
+    gradeComponents: [{ name: 'Giữa kỳ', score10: 8, weight: 40 }, { name: 'Cuối kỳ', score10: 9, weight: 60 }] },
 ];
 
 try {

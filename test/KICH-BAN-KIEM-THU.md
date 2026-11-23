@@ -43,7 +43,7 @@ Tài liệu này bao phủ các luồng chính trên giao diện LifeOS và các
 |---|---|---|---|
 | PROJ-01 | Tạo dự án | Chọn Tạo dự án; nhập tên và mô tả; lưu. | Dự án xuất hiện trong danh sách và Tổng quan; bộ đếm cập nhật. |
 | PROJ-02 | Kiểm tra tên dự án | Thử gửi tên rỗng/khoảng trắng; thử độ dài vượt giới hạn nếu có thể qua API. | Form/API từ chối dữ liệu; không tạo bản ghi rỗng. |
-| PROJ-03 | Mở/thu gọn task | Bấm Quản lý task trên dự án. | Khu vực task và form thêm task mở/đóng đúng dự án. |
+| PROJ-03 | Mở trang dự án | Bấm vào một dự án rồi bấm Thêm task. | Trang chi tiết mở trong cùng tab. Hộp thoại thêm task xuất hiện khi bấm nút. |
 | PROJ-04 | Tạo task | Nhập tên, ngày nộp (tùy chọn), mức ưu tiên; thêm task. | Task xuất hiện với tên, hạn, ưu tiên đúng. |
 | PROJ-05 | Hoàn thành/khôi phục task | Bấm trạng thái hoàn thành rồi bấm lại. | Trạng thái và kiểu hiển thị đổi đúng; dữ liệu còn đúng sau tải lại. |
 | PROJ-06 | Sửa task | Sửa tên, ngày nộp hoặc ưu tiên; lưu. | Giá trị mới hiển thị; không tạo task trùng. |

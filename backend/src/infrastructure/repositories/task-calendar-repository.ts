@@ -95,6 +95,10 @@ export class TaskCalendarRepository {
       .orderBy('scheduled_date').orderBy('start_minute').execute();
   }
 
+  preview(userId: string, blocks: TaskBlockInput[], ignoredId?: string) {
+    return db.transaction().execute((trx) => this.validate(trx, userId, blocks, ignoredId));
+  }
+
   create(userId: string, blocks: TaskBlockInput[]) {
     return db.transaction().execute(async (trx) => {
       await lockCalendar(trx, userId);
