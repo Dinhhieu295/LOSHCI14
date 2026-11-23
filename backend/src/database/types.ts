@@ -1,6 +1,6 @@
 import type { Generated } from 'kysely';
 
-export type AiProvider = 'openai' | 'gemini' | 'groq';
+export type AiProvider = 'openai' | 'gemini' | 'groq' | 'ollama';
 
 export interface UsersTable {
   id: string;
@@ -199,6 +199,7 @@ export interface Database {
     model: string;
     encrypted_key: string;
   };
+  assistant_connections: Database['assistant_settings'];
   assistant_conversations: {
     user_id: string;
     scope: string;

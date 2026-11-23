@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { config } from '../config.js';
+import { askOllamaWorker, checkOllamaAccess, ollamaRelayEnabled } from './ollama-relay.js';
 import { HttpError } from '../http/errors.js';
 import type { AiConnection } from './store.js';
 
@@ -8,12 +10,13 @@ export type AssistantTool = { type: string; name: string; description: string; s
 type OutputFormat = { name: string; schema: Record<string, unknown> };
 export type AssistantFile = { name: string; mimeType: 'application/pdf' | 'image/jpeg' | 'image/png'; data: string };
 export const defaultGroqModel = 'qwen/qwen3.8-27b';
+export const defaultOllamaModel = 'qwen3.5:2b-q4_K_M';
 
 const row = z.record(z.string(), z.unknown());
 const textParts = z.array(z.object({ type: z.literal('output_text'), text: z.string() }));
 const openAiError = z.object({ error: z.object({ code: z.string().nullish(), type: z.string().nullish() }) });
 const geminiError = z.object({ error: z.object({ message: z.string() }) });
-const providerNames = { openai: 'OpenAI', gemini: 'Google Gemini', groq: 'GroqCloud' };
+const providerNames = { openai: 'OpenAI', gemini: 'Google Gemini', groq: 'GroqCloud', ollama: 'Ollama' };
 const openAiQuotaMessages = new Map([
   ['credit_balance_exhausted', 'Tài khoản OpenAI API đã hết credit. Hãy kiểm tra số dư trong Billing.'],
   ['project_spend_limit_exceeded', 'Dự án OpenAI API đã chạm giới hạn chi tiêu. Hãy kiểm tra Limits của dự án.'],
@@ -72,7 +75,7 @@ export class GroqRateLimitError extends HttpError {
 async function requestModel(connection: AiConnection, url: string, payload: object, signal: AbortSignal) {
   const headers = new Headers({ 'Content-Type': 'application/json' });
   if (connection.provider === 'gemini') headers.set('x-goog-api-key', connection.apiKey);
-  else headers.set('Authorization', `Bearer ${connection.apiKey}`);
+  else if (connection.apiKey) headers.set('Authorization', `Bearer ${connection.apiKey}`);
   const response = await fetch(url, {
     method: 'POST', signal, redirect: 'error',
     headers,
@@ -142,7 +145,7 @@ function geminiTurns(input: ModelItem[]): GeminiTurn[] {
   return contents;
 }
 
-const groqReply = z.object({
+const chatCompletionsReply = z.object({
   choices: z.array(z.object({
     message: z.object({
       content: z.string().nullish(),
@@ -154,9 +157,9 @@ const groqReply = z.object({
   })),
 });
 
-function groqMessages(input: ModelItem[]): ModelItem[] {
+function chatCompletionsMessages(input: ModelItem[], provider: 'groq' | 'ollama'): ModelItem[] {
   return input.flatMap((item): ModelItem[] => {
-    if (item.type === 'groq_message') return [item.message as ModelItem];
+    if (item.type === 'chat_completions_message') return [item.message as ModelItem];
     if (item.type === 'function_call_output') {
       return [{ role: 'tool', tool_call_id: item.call_id, content: item.output }];
     }
@@ -165,7 +168,8 @@ function groqMessages(input: ModelItem[]): ModelItem[] {
       if (part.type === 'input_text') return [{ type: 'text', text: part.text }];
       if (part.type === 'input_image') return [{ type: 'image_url', image_url: { url: part.image_url } }];
       if (part.type === 'input_file') {
-        throw new HttpError(400, 'GroqCloud đọc ảnh PNG hoặc JPG. Hãy chọn ảnh chụp trang PDF cần đọc.', 'ASSISTANT_GROQ_PDF_UNSUPPORTED');
+        throw new HttpError(400, `${providerNames[provider]} đọc ảnh PNG hoặc JPG. Hãy chọn ảnh chụp trang PDF cần đọc.`,
+          provider === 'groq' ? 'ASSISTANT_GROQ_PDF_UNSUPPORTED' : 'ASSISTANT_OLLAMA_PDF_UNSUPPORTED');
       }
       return [];
     }) : item.content;
@@ -173,20 +177,23 @@ function groqMessages(input: ModelItem[]): ModelItem[] {
   });
 }
 
-async function sendGroq(connection: AiConnection, input: ModelItem[], instructions: string, tools: AssistantTool[],
+async function sendChatCompletions(connection: AiConnection, provider: 'groq' | 'ollama', url: string | null,
+  input: ModelItem[], instructions: string, tools: AssistantTool[],
   signal: AbortSignal, format?: OutputFormat): Promise<ModelItem[]> {
-  const data = await requestModel(connection, 'https://api.groq.com/openai/v1/chat/completions', {
+  const payload = {
     model: connection.model,
-    messages: [{ role: 'system', content: instructions }, ...groqMessages(input)],
+    messages: [{ role: 'system', content: instructions }, ...chatCompletionsMessages(input, provider)],
     max_completion_tokens: format ? 2400 : 1500,
-    ...(connection.model === defaultGroqModel ? { reasoning_effort: 'none', reasoning_format: 'hidden' } : {}),
+    ...(provider === 'groq' && connection.model === defaultGroqModel ? { reasoning_effort: 'none', reasoning_format: 'hidden' } : {}),
+    ...(provider === 'ollama' ? { reasoning_effort: 'none' } : {}),
     ...(tools.length ? { tools: tools.map(({ name, description, parameters }) => {
       const { $schema: _schema, ...toolParameters } = parameters;
       return { type: 'function', function: { name, description, parameters: toolParameters } };
     }) } : {}),
     ...(format ? { response_format: { type: 'json_schema', json_schema: { ...format, strict: true } } } : {}),
-  }, signal);
-  const message = groqReply.parse(data).choices[0]?.message;
+  };
+  const data = url ? await requestModel(connection, url, payload, signal) : await askOllamaWorker(payload, signal);
+  const message = chatCompletionsReply.parse(data).choices[0]?.message;
   if (!message) return [];
 
   const calls = message.tool_calls ?? [];
@@ -194,7 +201,7 @@ async function sendGroq(connection: AiConnection, input: ModelItem[], instructio
     type: 'function_call', call_id: call.id, name: call.function.name, arguments: call.function.arguments,
   }));
   if (calls.length) {
-    output.unshift({ type: 'groq_message', message: { role: 'assistant', content: message.content ?? null, tool_calls: calls } });
+    output.unshift({ type: 'chat_completions_message', message: { role: 'assistant', content: message.content ?? null, tool_calls: calls } });
   }
   if (message.content) output.push({ type: 'message', content: [{ type: 'output_text', text: message.content }] });
   return output;
@@ -203,7 +210,18 @@ async function sendGroq(connection: AiConnection, input: ModelItem[], instructio
 export async function sendModel(
   connection: AiConnection, input: ModelItem[], instructions: string, tools: AssistantTool[], signal: AbortSignal, format?: OutputFormat,
 ): Promise<ModelItem[]> {
-  if (connection.provider === 'groq') return sendGroq(connection, input, instructions, tools, signal, format);
+  if (connection.provider === 'groq') {
+    return sendChatCompletions(connection, 'groq', 'https://api.groq.com/openai/v1/chat/completions', input, instructions, tools, signal, format);
+  }
+  if (connection.provider === 'ollama') {
+    if (ollamaRelayEnabled) {
+      checkOllamaAccess(connection.apiKey);
+      return sendChatCompletions({ ...connection, model: defaultOllamaModel }, 'ollama', null, input, instructions, tools, signal, format);
+    }
+    if (!config.OLLAMA_BASE_URL) throw new HttpError(503, 'Máy chủ chưa kết nối với Ollama.', 'ASSISTANT_UNAVAILABLE');
+    const url = new URL('/v1/chat/completions', config.OLLAMA_BASE_URL).href;
+    return sendChatCompletions(connection, 'ollama', url, input, instructions, tools, signal, format);
+  }
 
   if (connection.provider === 'openai') {
     const data = await requestModel(connection, 'https://api.openai.com/v1/responses', {

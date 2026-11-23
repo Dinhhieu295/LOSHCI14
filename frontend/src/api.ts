@@ -1,9 +1,9 @@
 export type NoticeType = 'success' | 'error' | 'info' | 'warning';
 
-export const assistantProviders = { openai: 'OpenAI', gemini: 'Google Gemini', groq: 'GroqCloud' } as const;
+export const assistantProviders = { openai: 'OpenAI', gemini: 'Google Gemini', groq: 'GroqCloud', ollama: 'Ollama' } as const;
 export type AiProvider = keyof typeof assistantProviders;
 export type AssistantStatus = { configured: boolean; provider?: AiProvider };
-export const supportsAssistantPdf = (provider?: AiProvider) => provider !== 'groq';
+export const supportsAssistantPdf = (provider?: AiProvider) => provider !== 'groq' && provider !== 'ollama';
 
 export interface NoticePayload {
   message: string;

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: loshci14-ai-api
+    name: loshci14-local-ai-api
     runtime: node
     rootDir: backend
     region: singapore
@@ -17,16 +17,20 @@ services:
         sync: false
       - key: ASSISTANT_SETTINGS_KEY
         generateValue: true
+      - key: OLLAMA_WORKER_TOKEN
+        generateValue: true
+      - key: OLLAMA_ACCESS_CODE
+        generateValue: true
       - key: SESSION_TTL_DAYS
         value: 30
       - key: CORS_ORIGIN
         fromService:
           type: web
-          name: loshci14-ai-web
+          name: loshci14-local-ai-web
           envVarKey: RENDER_EXTERNAL_URL
 
   - type: web
-    name: loshci14-ai-web
+    name: loshci14-local-ai-web
     runtime: static
     rootDir: frontend
     buildCommand: npm ci && npm run build
@@ -39,5 +43,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: loshci14-ai-api
+          name: loshci14-local-ai-api
           envVarKey: RENDER_EXTERNAL_URL

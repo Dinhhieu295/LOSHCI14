@@ -10,6 +10,9 @@ type AiSettings = {
   provider: AiProvider;
   model: string;
   defaultModels: Record<AiProvider, string>;
+  savedModels?: Partial<Record<AiProvider, string>>;
+  availableProviders?: AiProvider[];
+  ollamaRequiresKey?: boolean;
 };
 
 const path = '/assistant/settings';
@@ -49,7 +52,7 @@ export default function SettingsPage({ dark, reminders, onTheme, onReminders }: 
     setError('');
     setStatus('');
     try {
-      const result = await api<AiSettings>(path, {
+      const result = await api<AiSettings>(method === 'DELETE' ? `${path}?provider=${provider}` : path, {
         method,
         body: method === 'PUT' ? JSON.stringify({ provider, model: model.trim() || undefined, apiKey: apiKey.trim() || undefined }) : undefined,
       });
@@ -57,7 +60,8 @@ export default function SettingsPage({ dark, reminders, onTheme, onReminders }: 
       setProvider(result.provider);
       setModel(result.model);
       setApiKey('');
-      setStatus(method === 'PUT' ? 'Đã lưu khóa AI.' : 'Đã gỡ khóa AI cá nhân.');
+      setStatus(provider === 'ollama' ? (method === 'PUT' ? 'Đã lưu kết nối Ollama.' : 'Đã gỡ kết nối Ollama.')
+        : (method === 'PUT' ? 'Đã lưu khóa AI.' : 'Đã gỡ khóa AI cá nhân.'));
     } catch (reason) {
       setError(errorText(reason));
     } finally {
@@ -66,14 +70,17 @@ export default function SettingsPage({ dark, reminders, onTheme, onReminders }: 
   }
 
   const save = (event: FormEvent) => { event.preventDefault(); void update('PUT'); };
+  const needsKey = provider !== 'ollama' || settings?.ollamaRequiresKey !== false;
+  const keyLabel = provider === 'ollama' ? 'Mã kết nối Ollama' : 'API key';
+  const selectedHasKey = Boolean(settings?.savedModels?.[provider] ?? (settings?.provider === provider && settings.hasPersonalKey));
 
   return <div className="planning-page lifeos-settings">
     <header className="planning-heading"><h1>Cài đặt</h1></header>
     <section className="panel planning-panel" aria-labelledby="ai-settings-title">
       <div className="planning-section-head">
         <h2 id="ai-settings-title"><KeyRound size={17} aria-hidden="true" /> Trợ lý AI</h2>
-        {settings && <span className="planning-pill">{settings.hasPersonalKey ? 'Đã lưu khóa cá nhân'
-          : settings.configured ? 'Dùng khóa máy chủ' : 'Chưa kết nối'}</span>}
+        {settings && <span className="planning-pill">{settings.provider === 'ollama' && settings.configured ? 'Đã kết nối Ollama'
+          : settings.hasPersonalKey ? 'Đã lưu khóa cá nhân' : settings.configured ? 'Dùng khóa máy chủ' : 'Chưa kết nối'}</span>}
       </div>
       {settings ? <>
         {settings.canSaveKey ? <form className="planning-editor ai-settings-form" onSubmit={save}>
@@ -81,29 +88,31 @@ export default function SettingsPage({ dark, reminders, onTheme, onReminders }: 
             <select value={provider} disabled={busy} onChange={(event) => {
               const next = event.target.value as AiProvider;
               setProvider(next);
-              setModel(next === settings.provider ? settings.model : settings.defaultModels[next]);
+              setModel(settings.savedModels?.[next] ?? (next === settings.provider ? settings.model : settings.defaultModels[next]));
               setApiKey('');
               setStatus('');
               setError('');
             }}>
-              {Object.entries(assistantProviders).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              {(settings.availableProviders ?? ['openai', 'gemini', 'groq'] as const).map((id) => (
+                <option key={id} value={id}>{assistantProviders[id]}</option>
+              ))}
             </select>
           </label>
           <label className="planning-field">Model
             <input value={model} disabled={busy} maxLength={100} placeholder={settings.defaultModels[provider]}
               onChange={(event) => setModel(event.target.value)} />
           </label>
-          <label className="planning-field ai-settings-key">API key
+          {needsKey && <label className="planning-field ai-settings-key">{keyLabel}
             <input type="password" autoComplete="new-password" spellCheck={false} minLength={12} maxLength={512} value={apiKey}
-              required={!settings.hasPersonalKey || provider !== settings.provider} disabled={busy}
-              placeholder={settings.hasPersonalKey && provider === settings.provider ? 'Nhập khóa mới để thay thế' : 'Nhập API key của bạn'}
+              required={!selectedHasKey} disabled={busy}
+              placeholder={selectedHasKey ? 'Đã lưu. Nhập mã mới nếu muốn thay đổi' : `Nhập ${keyLabel}`}
               onChange={(event) => setApiKey(event.target.value)} />
-          </label>
+          </label>}
           <div className="planning-actions ai-settings-key">
             <button className="primary-button" type="submit" disabled={busy}>
               {busy ? 'Đang xử lý…' : 'Lưu kết nối'}
             </button>
-            {settings.hasPersonalKey && <button type="button" className="soft-button" disabled={busy}
+            {selectedHasKey && <button type="button" className="soft-button" disabled={busy}
               onClick={() => void update('DELETE')}>Gỡ khóa</button>}
             {provider === 'groq' && <a className="soft-button" href="https://console.groq.com/keys" target="_blank"
               rel="noreferrer">Tạo khóa GroqCloud</a>}

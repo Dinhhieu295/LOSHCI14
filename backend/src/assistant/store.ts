@@ -24,8 +24,17 @@ export class AssistantStore {
     return db.selectFrom('assistant_settings').select(['provider', 'model']).where('user_id', '=', userId).executeTakeFirst();
   }
 
-  async connection(userId: string): Promise<AiConnection | undefined> {
-    const row = await db.selectFrom('assistant_settings').selectAll().where('user_id', '=', userId).executeTakeFirst();
+  async savedModels(userId: string): Promise<Partial<Record<AiProvider, string>>> {
+    const rows = await db.selectFrom('assistant_connections').select(['provider', 'model'])
+      .where('user_id', '=', userId).execute();
+    return Object.fromEntries(rows.map(({ provider, model }) => [provider, model]));
+  }
+
+  async connection(userId: string, provider?: AiProvider): Promise<AiConnection | undefined> {
+    const row = provider
+      ? await db.selectFrom('assistant_connections').selectAll().where('user_id', '=', userId)
+        .where('provider', '=', provider).executeTakeFirst()
+      : await db.selectFrom('assistant_settings').selectAll().where('user_id', '=', userId).executeTakeFirst();
     if (!row) return undefined;
     const key = this.key();
     try {
@@ -48,12 +57,24 @@ export class AssistantStore {
     const ciphertext = Buffer.concat([cipher.update(apiKey, 'utf8'), cipher.final()]);
     const encrypted_key = [iv, cipher.getAuthTag(), ciphertext].map((part) => part.toString('base64url')).join('.');
     const values = { provider, model, encrypted_key };
-    await db.insertInto('assistant_settings').values({ user_id: userId, ...values })
-      .onConflict((conflict) => conflict.column('user_id').doUpdateSet(values)).execute();
+    await db.transaction().execute(async (transaction) => {
+      await transaction.selectFrom('users').select('id').where('id', '=', userId).forUpdate().executeTakeFirstOrThrow();
+      await transaction.insertInto('assistant_connections').values({ user_id: userId, ...values })
+        .onConflict((conflict) => conflict.columns(['user_id', 'provider']).doUpdateSet(values)).execute();
+      await transaction.insertInto('assistant_settings').values({ user_id: userId, ...values })
+        .onConflict((conflict) => conflict.column('user_id').doUpdateSet(values)).execute();
+    });
   }
 
-  async removeConnection(userId: string) {
-    await db.deleteFrom('assistant_settings').where('user_id', '=', userId).execute();
+  async removeConnection(userId: string, provider?: AiProvider) {
+    await db.transaction().execute(async (transaction) => {
+      await transaction.selectFrom('users').select('id').where('id', '=', userId).forUpdate().executeTakeFirstOrThrow();
+      const active = await transaction.selectFrom('assistant_settings').select('provider').where('user_id', '=', userId).executeTakeFirst();
+      const target = provider ?? active?.provider;
+      if (!target) return;
+      await transaction.deleteFrom('assistant_connections').where('user_id', '=', userId).where('provider', '=', target).execute();
+      await transaction.deleteFrom('assistant_settings').where('user_id', '=', userId).where('provider', '=', target).execute();
+    });
   }
 
   async history(userId: string, scope: string): Promise<ChatMessage[]> {
