@@ -1,4 +1,4 @@
-import type { CalendarTaskBlock, CalendarTaskInput, CalendarTime, Course, CourseSession, Project, ProjectTask, ScheduleItem, TaskCategory } from './api';
+import type { Assignment, CalendarTaskBlock, CalendarTaskInput, CalendarTime, Course, CourseSession, Project, ProjectTask, ScheduleItem, TaskCategory } from './api';
 import { localDate, parseTimeRange, type FreeDay } from './studyPlanning';
 
 export const stepMinutes = 15;
@@ -86,16 +86,29 @@ export function fixedTaskTimes(tasks: ProjectTask[], dates: string[]) {
 export interface WorkItem {
   task: ProjectTask;
   group: { id: string | null; title: string };
+  workKind?: 'task' | 'assignment';
+  courseId?: string | null;
 }
 
 export interface QueueItem extends WorkItem {
   remaining: number;
 }
 
-export function collectWork(projects: Project[], tasksByProject: Record<string, ProjectTask[]>, personalTasks: ProjectTask[]): WorkItem[] {
+export function collectWork(projects: Project[], tasksByProject: Record<string, ProjectTask[]>, personalTasks: ProjectTask[], assignments: Assignment[] = [], courses: Course[] = []): WorkItem[] {
   return [
     ...projects.flatMap((project) => (tasksByProject[project.id] ?? []).map((task) => ({ task, group: project }))),
     ...personalTasks.map((task) => ({ task, group: { id: null, title: workCategoryLabels[task.category ?? 'personal'] } })),
+    ...assignments.map((assignment): WorkItem => ({
+      workKind: 'assignment', courseId: assignment.courseId,
+      group: { id: assignment.courseId, title: courses.find((course) => course.id === assignment.courseId)?.name ?? 'Bài tập chung' },
+      task: { id: assignment.id, projectId: null, category: null, fixedSlot: null, title: assignment.title,
+        priority: assignment.priority, dueDate: assignment.deadline.slice(0, 10), isDone: assignment.status === 'Completed',
+        status: assignment.status === 'Completed' ? 'done' : assignment.status === 'In Progress' ? 'in-progress' : 'todo',
+        estimate: assignment.estimatedTime ?? '0h', actual: '0m',
+        subtasksDone: 0, subtasksTotal: 0, assignee: '', startDay: 0, durationDays: 1, baselineStart: 0, baselineDuration: 1,
+        isMilestone: false, dependencies: assignment.dependencies ?? [], completedAt: null, createdAt: '', updatedAt: '',
+      },
+    })),
   ];
 }
 
@@ -109,12 +122,13 @@ export function buildQueue(work: WorkItem[], blocks: CalendarTaskBlock[], now: D
     if (block.date < today || (block.date === today && block.end <= minute)) continue;
     reserved.set(block.taskId, (reserved.get(block.taskId) ?? 0) + block.end - block.start);
   }
-  return work.flatMap(({ task, group }): QueueItem[] => {
+  return work.flatMap((item): QueueItem[] => {
+    const { task } = item;
     if (!undone(task) || task.fixedSlot || task.category === 'employment') return [];
     const estimate = durationMinutes(task.estimate) || 60;
     const target = roundTime(Math.max(stepMinutes, estimate - (durationMinutes(task.actual) ?? 0)));
     const gap = target - (reserved.get(task.id) ?? 0);
-    return gap > 0 ? [{ task, group, remaining: roundTime(gap) }] : [];
+    return gap > 0 ? [{ ...item, remaining: roundTime(gap) }] : [];
   }).sort((a, b) => (a.task.dueDate ?? '9999').localeCompare(b.task.dueDate ?? '9999') ||
     (priorityRank[b.task.priority.toLowerCase()] ?? 0) - (priorityRank[a.task.priority.toLowerCase()] ?? 0) ||
     a.task.title.localeCompare(b.task.title, 'vi'));
@@ -138,7 +152,7 @@ export function suggestTaskBlocks(queue: QueueItem[], days: FreeDay[], existing:
         const usable = Math.floor(Math.min(slot.end - slot.start, budget) / stepMinutes) * stepMinutes;
         const length = Math.min(remaining, usable, sessionMinutes);
         if (length < stepMinutes) break;
-        blocks.push({ taskId: item.task.id, date: slot.date, start: slot.start, end: slot.start + length });
+        blocks.push({ taskId: item.task.id, workKind: item.workKind, date: slot.date, start: slot.start, end: slot.start + length });
         scheduled.set(slot.date, (scheduled.get(slot.date) ?? 0) + length);
         slot.start += length + restMinutes;
         remaining -= length;

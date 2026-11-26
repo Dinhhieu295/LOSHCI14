@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ChevronDown, ScanText } from 'lucide-react';
 import { api, type Course, type CourseGradeComponent } from './api';
 import { CourseGradeTarget, type GradeDraft } from './CourseGradeTarget';
@@ -31,6 +31,26 @@ export function CourseAssessment({ course, onSaved, children }: {
   const [absenceError, setAbsenceError] = useState('');
   const [gradeError, setGradeError] = useState('');
   const [gradeStatus, setGradeStatus] = useState<'idle' | 'editing' | 'saved'>('idle');
+  const externalUpdate = useRef(false);
+  useEffect(() => {
+    const applied = (event: Event) => {
+      if ((event as CustomEvent<{ resources?: string[] }>).detail?.resources?.includes('courses')) externalUpdate.current = true;
+    };
+    window.addEventListener('lifeos:assistant-applied', applied);
+    return () => window.removeEventListener('lifeos:assistant-applied', applied);
+  }, []);
+  useEffect(() => {
+    if (!externalUpdate.current) return;
+    externalUpdate.current = false;
+    const components = course.gradeComponents ?? [];
+    setRows(components.map((item) => ({ name: item.name, score10: item.score10 == null ? '' : String(item.score10), weight: String(item.weight) })));
+    setCountInput(String(components.length));
+    setSavedCount(components.length);
+    setAbsences(course.absences == null ? '' : String(course.absences));
+    setSavedAbsences(course.absences ?? null);
+    setGradeStatus('idle');
+    setGradeError('');
+  }, [course.updatedAt, course.gradeComponents, course.absences]);
 
   const count = Number(countInput);
   const countIsValid = countInput !== '' && Number.isInteger(count) && count >= 0 && count <= maxComponents;

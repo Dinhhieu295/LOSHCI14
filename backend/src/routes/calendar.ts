@@ -12,7 +12,7 @@ const interval = {
 };
 const validLength = ({ start, end }: { start: number; end: number }) => end - start >= 15;
 export const calendarTimeSchema = z.object(interval).refine(validLength);
-const blockSchema = z.object({ ...interval, taskId: z.uuid() }).refine(validLength);
+const blockSchema = z.object({ ...interval, taskId: z.uuid(), workKind: z.enum(['task', 'assignment']).optional() }).refine(validLength);
 export const calendarBlocksSchema = z.object({ blocks: z.array(blockSchema).min(1).max(100) });
 
 export function createCalendarRouter(auth: AuthService, repository: TaskCalendarRepository) {

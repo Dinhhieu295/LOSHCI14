@@ -1,0 +1,16 @@
+# Only the frontend build inputs and its shared pure rules enter this context.
+**
+!frontend/
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/index.html
+!frontend/tsconfig.json
+!frontend/vite.config.ts
+!frontend/postcss.config.js
+!frontend/nginx.conf
+!frontend/src/
+!frontend/src/**
+!backend/
+!backend/src/
+!backend/src/application/
+!backend/src/application/assistant-math.ts

@@ -1,4 +1,4 @@
-﻿# LifeOS
+# LifeOS
 
 Ứng dụng quản lý nhịp sống cá nhân, dự án và việc học. LifeOS giúp người dùng theo dõi mục tiêu, công việc, lịch học và thói quen trong một không gian thống nhất.
 
@@ -160,20 +160,28 @@ npm run db:seed:demo
 
 Đặt `ASSISTANT_SETTINGS_KEY` thành khóa ngẫu nhiên riêng của backend, chạy migration và khởi động lại API. Tạo khóa máy chủ bằng `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` rồi lưu trong `backend/.env` hoặc trình quản lý secret của môi trường triển khai. Giữ cùng một giá trị qua các lần khởi động để mở được API key đã lưu.
 
-Sau khi đăng nhập, vào **Cài đặt → Trợ lý AI** để lưu API key OpenAI, Google Gemini hoặc GroqCloud. GroqCloud mặc định dùng `qwen/qwen3.8-27b`, hỗ trợ chat, gọi công cụ LifeOS và đọc ảnh slide trong hạn mức của gói miễn phí. Với bản tự triển khai, nên dùng khóa thuộc tài khoản của người vận hành. `OPENAI_API_KEY` và `OPENAI_MODEL` vẫn có thể cấu hình kết nối mặc định trên backend.
+Sau khi đăng nhập, vào **Cài đặt → Trợ lý AI** để lưu API key OpenAI, Google Gemini hoặc GroqCloud. Hoặc đặt `GROQ_API_KEY` trong `backend/.env` rồi khởi động lại backend để dùng GroqCloud mặc định mà không cần lưu khóa cá nhân. Khóa cá nhân đã lưu được ưu tiên; khóa Groq máy chủ được ưu tiên hơn `OPENAI_API_KEY`. GroqCloud mặc định dùng `qwen/qwen3.8-27b`, hỗ trợ chat, gọi công cụ LifeOS và đọc ảnh slide trong hạn mức của tài khoản. `OPENAI_API_KEY` và `OPENAI_MODEL` vẫn có thể cấu hình kết nối OpenAI mặc định trên backend.
 
-**Trợ lý** ở thanh trên cùng mở chat chung, chat của môn học hoặc chat của dự án đang xem. Trợ lý dùng dịch vụ LifeOS theo tài khoản đang đăng nhập và đưa thao tác ra xem trước để duyệt. Đề xuất chờ duyệt tối đa 10 phút. Câu hỏi, dữ liệu công cụ và tệp được đính kèm để phân tích sẽ được gửi từ backend đến nhà cung cấp đang dùng. Có thể xóa lịch sử chat trong từng ngữ cảnh.
+Với chat văn bản, khi Groq trả HTTP 429 hoặc HTTP 413 do vượt dung lượng xử lý của model, trợ lý chuyển ngay theo thứ tự từ dưới lên trong danh sách model: `qwen/qwen3.8-27b` → `openai/gpt-oss-safeguard-20b` → `openai/gpt-oss-20b` → `openai/gpt-oss-120b`. Nếu chọn một model khác trong chuỗi, trợ lý bắt đầu từ model đó và chỉ chuyển lên các model phía sau; model tùy chỉnh ngoài chuỗi dùng riêng. Model bị giới hạn được bỏ qua theo `Retry-After` (mặc định 60 giây nếu thiếu), rồi được ưu tiên lại khi hết thời gian chờ. Thời gian chờ được nhớ theo từng API key trong tiến trình backend và được xóa khi khởi động lại. Nếu tất cả model đều bị giới hạn, trợ lý báo thời gian chờ ngắn nhất. Lỗi xác thực và lỗi tham số (400/404/422) không kích hoạt chuyển model. Yêu cầu có ảnh giữ nguyên model vì các GPT-OSS trong chuỗi chỉ nhận văn bản. GPT-OSS Safeguard được huấn luyện cho phân loại an toàn nội dung nên chất lượng trợ lý có thể khác các model chat. Việc chuyển model không làm tăng hạn mức chung của tài khoản Groq.
 
-Đính kèm PDF, PNG hoặc JPG trong chat để phân tích, rồi bấm **Lưu vào Tài liệu** để lưu tệp vào môn hay dự án hiện tại. Khi dùng GroqCloud, chọn ảnh PNG hoặc JPG của trang cần đọc. Trong trang môn, mở **Đầu điểm → Lấy tỷ trọng từ slide** để duyệt tên, trọng số và trang nguồn trước khi đưa vào bảng điểm và bấm **Lưu điểm**.
+**Trợ lý** ở thanh trên cùng mở chat chung, chat của môn học hoặc chat của dự án đang xem. Backend đọc `backend/.env` theo vị trí module, kể cả khi khởi động từ thư mục gốc. Trợ lý dùng dịch vụ LifeOS theo tài khoản đang đăng nhập và đưa thao tác ra xem trước để duyệt. Đề xuất được lưu trong PostgreSQL, gắn với tài khoản và phiên đăng nhập, có hiệu lực 15 phút và được khôi phục sau khi tải lại trang. Câu hỏi, dữ liệu công cụ và tệp được đính kèm để phân tích sẽ được gửi từ backend đến nhà cung cấp đang dùng. Xóa lịch sử chat cũng bỏ các đề xuất đang chờ của ngữ cảnh đó.
+
+Workflow phase 1: tìm và đọc đối tượng → làm rõ thông tin thiếu/trùng tên → kiểm tra cấu trúc và quy tắc → tạo bản xem trước → người dùng xác nhận → thực hiện → lưu kết quả vào hội thoại và cập nhật giao diện. Công cụ hỗ trợ CRUD dự án, task, việc cá nhân/ca làm, môn học, bài tập, kỳ thi, ghi chú, lịch học, sự kiện, nhật ký, khung giờ rảnh và phản hồi học tập. Các công cụ bổ sung gồm tìm kiếm liên tài nguyên có phân trang, đọc chi tiết không gian, hướng dẫn LifeOS, lịch tổng hợp, giờ trống, bản xếp lịch, GPA/điểm mục tiêu, tài liệu và bấm giờ. Câu trả lời có liên kết về bản ghi nguồn. Nhóm công cụ được chọn theo ngữ cảnh; model có thể yêu cầu mở thêm nhóm để giảm kích thước mỗi yêu cầu.
+
+Yêu cầu nhiều bước dùng `propose_lifeos_plan`, ví dụ tạo dự án rồi tạo các task phụ thuộc ID mới. Kế hoạch được duyệt một lần và thực hiện trong một giao dịch PostgreSQL dùng chung cho các repository. Nếu một bước lỗi, mọi thay đổi trong kế hoạch được hoàn tác; đề xuất vẫn còn để xử lý. Áp dụng lại đề xuất đã thành công trả cùng kết quả, không tạo thêm dữ liệu. Thao tác sửa/xóa kiểm tra dữ liệu từ lúc xem trước để tránh ghi đè thay đổi mới. Kết quả thực hiện và bỏ qua được ghi vào lịch sử phía backend để trợ lý hiểu “mục vừa tạo”.
+
+Lịch trình có thể xếp, dời và trả về hàng đợi cho cả task lẫn bài tập. API giữ trường `taskId` làm ID công việc; `workKind: "assignment"` chỉ bài tập, mặc định là task. Phiên làm việc phải tránh lịch bận; sự kiện cá nhân được phép lưu trùng giờ sau cảnh báo. Tính điểm, GPA, phân tích khung giờ và trừ lịch bận dùng các hàm thuần chung giữa backend và frontend. Chạy migration trước khi khởi động phiên bản này: `cd backend; npm.cmd run db:migrate`.
+
+Đính kèm PDF, PNG hoặc JPG tối đa 6 MB, hoặc TXT/MD/CSV/JSON UTF-8 tối đa 80 KB, để phân tích trong chat. Yêu cầu trợ lý lưu tệp sẽ tạo bản xem trước để duyệt; nút **Lưu vào Tài liệu** vẫn hỗ trợ lưu trực tiếp vào môn/dự án đang mở. Khi dùng GroqCloud, chọn ảnh PNG hoặc JPG của trang PDF cần đọc. Trong trang môn, mở **Đầu điểm → Lấy tỷ trọng từ slide** để duyệt tên, trọng số và trang nguồn trước khi đưa vào bảng điểm và bấm **Lưu điểm**. Công cụ đọc tài liệu đã lưu chỉ đọc trực tiếp các định dạng văn bản trên; không tuyên bố đã đọc nội dung tệp nhị phân.
 
 ## 8. Kiểm thử và kết quả
 
-Bộ test Playwright nằm tại `test/lifeos.spec.ts` và `test/manual-scenarios.spec.ts`. Bộ test bao gồm kiểm thử giao diện, điều hướng mobile, API, giờ trống, phản hồi gợi ý và thời điểm hoàn thành công việc. Sau khi ứng dụng và PostgreSQL hoạt động, từ thư mục gốc chạy:
+Bộ test Playwright nằm tại `test/lifeos.spec.ts`, `test/manual-scenarios.spec.ts` và `test/assistant-workflow.spec.ts`. Các ca workflow dùng backend fixture ở cổng 4002 với model giả lập xác định, công cụ và PostgreSQL thật; cấu hình Playwright tự khởi chạy fixture. Kết nối Groq thật được kiểm tra riêng. Bộ test bao gồm giao diện, điều hướng mobile, API, giờ trống, phản hồi gợi ý, kế hoạch nhiều bước, đề xuất sau tải lại, dữ liệu cũ và lưu tài liệu. Sau khi ứng dụng và PostgreSQL hoạt động, từ thư mục gốc chạy:
 
 ```powershell
 npm.cmd install
 $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $env:TEMP 'lifeos-playwright-browsers'
-npm.cmd exec -- playwright test test/lifeos.spec.ts test/manual-scenarios.spec.ts --reporter=list
+npm.cmd exec -- playwright test --workers=1 --reporter=list
 ```
 
 Nếu Chromium chưa được cài trong thư mục trên, cài bằng:
@@ -181,3 +189,5 @@ Nếu Chromium chưa được cài trong thư mục trên, cài bằng:
 ```powershell
 npm.cmd exec -- playwright install chromium
 ```
+
+Trên Windows, cấu hình tự dùng Edge đã cài nếu có. Đặt `PLAYWRIGHT_CHANNEL` để chọn trình duyệt khác. Kiểm thử backend chạy từ `backend`: `npm.cmd test`; kiểm thử giao dịch PostgreSQL: `npm.cmd run test:integration` (tạo tài khoản riêng và dọn tài khoản đó sau khi chạy). Build kiểm tra: `npm.cmd run build` trong cả `backend` và `frontend`.

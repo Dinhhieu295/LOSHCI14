@@ -79,6 +79,7 @@ export interface CourseGradeComponent {
 
 export interface Course {
   id: string;
+  updatedAt?: string;
   name: string;
   code: string;
   semester: string;
@@ -195,6 +196,7 @@ export interface CalendarTime {
 
 export interface CalendarTaskInput extends CalendarTime {
   taskId: string;
+  workKind?: 'task' | 'assignment';
 }
 
 export interface CalendarTaskBlock extends CalendarTaskInput {

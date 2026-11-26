@@ -1,46 +1,7 @@
-import type { Assignment, AvailabilityWindow, CalendarTime, Course, CourseGradeComponent, CourseSession, Exam, ScheduleItem, StudyPreference } from './api';
+import type { Assignment, AvailabilityWindow, CalendarTime, Course, CourseSession, Exam, ScheduleItem, StudyPreference } from './api';
 
-const gradeScale = [
-  { minimum: 9, grade: 'A+', points: 4 },
-  { minimum: 8.5, grade: 'A', points: 4 },
-  { minimum: 8, grade: 'B+', points: 3.5 },
-  { minimum: 7, grade: 'B', points: 3 },
-  { minimum: 6.5, grade: 'C+', points: 2.5 },
-  { minimum: 5.5, grade: 'C', points: 2 },
-  { minimum: 5, grade: 'D+', points: 1.5 },
-  { minimum: 4, grade: 'D', points: 1 },
-  { minimum: 0, grade: 'F', points: 0 },
-];
-
-export function calculateCourseScore(components: CourseGradeComponent[]) {
-  if (components.length === 0) return null;
-  const totalWeight = components.reduce((sum, { weight }) => sum + weight, 0);
-  if (Math.abs(totalWeight - 100) >= 0.000001 || components.some(({ score10, weight }) =>
-    !(weight >= 0 && weight <= 100) || (weight > 0 && (score10 == null || !(score10 >= 0 && score10 <= 10))),
-  )) return null;
-  const weightedSum = components.reduce((sum, { score10, weight }) => sum + (weight > 0 ? (score10 ?? 0) * weight : 0), 0);
-  return Math.round(weightedSum + 1e-8) / 100;
-}
-
-function courseGradeBand(score: number | null) {
-  return score != null && score >= 0 && score <= 10 ? gradeScale.find((band) => score >= band.minimum) : undefined;
-}
-
-export function courseLetterGrade(score: number | null) {
-  return courseGradeBand(score)?.grade ?? null;
-}
-
-export function calculateGpa(courses: Course[]) {
-  let credits = 0;
-  let weighted = 0;
-  for (const course of courses) {
-    const points = courseGradeBand(course.score10)?.points;
-    if (points === undefined || course.credits <= 0) continue;
-    credits += course.credits;
-    weighted += course.credits * points;
-  }
-  return { value: credits > 0 ? weighted / credits : null, credits };
-}
+export { calculateCourseScore, courseLetterGrade, calculateGpa, parseTimeRange } from '../../backend/src/application/assistant-math';
+import { subtractBusy, parseTimeRange } from '../../backend/src/application/assistant-math';
 
 export const weekdays = ['Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy', 'Chủ nhật'];
 
@@ -49,14 +10,6 @@ export const defaultAvailability: AvailabilityWindow[] = weekdays.map((_, index)
 }));
 
 type Range = [number, number];
-
-export function parseTimeRange(value: string): Range | null {
-  const match = /^([01]?\d|2[0-3]):([0-5]\d)(?:\s*(?:-|–|—|đến|to)\s*([01]?\d|2[0-3]):([0-5]\d))?$/i.exec(value.trim());
-  if (!match) return null;
-  const start = Number(match[1]) * 60 + Number(match[2]);
-  const end = match[3] === undefined ? Math.min(1440, start + 60) : Number(match[3]) * 60 + Number(match[4]);
-  return start < end ? [start, end] : null;
-}
 
 export function timeLabel(minutes: number) {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
@@ -100,15 +53,8 @@ export function getFreeDays(
       ...blocked.filter((item) => item.date === date).map((item): Range => [item.start, item.end]),
     ].filter((entry): entry is Range => entry !== null).sort(([left], [right]) => left - right);
     const [start, end] = range;
-    const slots: Range[] = [];
-    let cursor = date === today ? Math.max(start, Math.ceil((now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60) / 5) * 5) : start;
-    for (const [busyStart, busyEnd] of busy) {
-      const gapEnd = Math.min(busyStart, end);
-      if (cursor < gapEnd) slots.push([cursor, gapEnd]);
-      cursor = Math.max(cursor, busyEnd);
-      if (cursor >= end) break;
-    }
-    if (cursor < end) slots.push([cursor, end]);
+    const cursor = date === today ? Math.max(start, Math.ceil((now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60) / 5) * 5) : start;
+    const slots = subtractBusy(cursor, end, busy);
     return { date, available: true, slots };
   });
 }

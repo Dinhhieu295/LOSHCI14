@@ -36,8 +36,13 @@ export function ProjectDocuments({ projectId, courseId, tasks, taskId, onOpenTas
     const refresh = (event: Event) => {
       if ((event as CustomEvent<string>).detail === path) setAttempt((value) => value + 1);
     };
+    const applied = () => setAttempt((value) => value + 1);
     window.addEventListener('lifeos:workspace-files', refresh);
-    return () => window.removeEventListener('lifeos:workspace-files', refresh);
+    window.addEventListener('lifeos:assistant-applied', applied);
+    return () => {
+      window.removeEventListener('lifeos:workspace-files', refresh);
+      window.removeEventListener('lifeos:assistant-applied', applied);
+    };
   }, [path]);
 
   const run = async (operation: () => Promise<void>) => {
@@ -153,6 +158,12 @@ export function ProjectTimer({ projectId, courseId, taskId, taskNames, onChanged
     const abort = new AbortController();
     void load(abort.signal);
     return () => abort.abort();
+  }, [load]);
+
+  useEffect(() => {
+    const refresh = () => void load();
+    window.addEventListener('lifeos:assistant-applied', refresh);
+    return () => window.removeEventListener('lifeos:assistant-applied', refresh);
   }, [load]);
 
   useEffect(() => {

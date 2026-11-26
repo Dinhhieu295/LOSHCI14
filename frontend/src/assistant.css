@@ -174,3 +174,13 @@
 }
 
 @media (max-width: 420px) { .ai-settings-form { grid-template-columns: 1fr; } }
+.assistant-message-group { min-width: 0; }
+.assistant-sources { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.assistant-sources a { font-size: 12px; color: var(--primary, #406c4d); border: 1px solid var(--border, #d5dfd7); border-radius: 8px; padding: 4px 8px; overflow-wrap: anywhere; }
+.assistant-tool-summary { font-size: 12px; margin: 0 0 14px; opacity: .85; }
+.assistant-tool-summary ul { padding-left: 18px; }
+.assistant-plan-steps { padding-left: 22px; }
+.assistant-plan-steps > li { margin: 14px 0; }
+.assistant-plan-steps dl { font-size: 12px; }
+.assistant-impact { border-left: 3px solid #b8893c; padding-left: 10px; }
+.assistant-draft del { opacity: .65; }

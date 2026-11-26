@@ -5,7 +5,8 @@ import test from 'node:test';
 import express from 'express';
 import { ApplicationError } from '../src/application/errors.ts';
 import { createAssistantActions } from '../src/assistant/actions.ts';
-import { GroqRateLimitError, messageWithFile, modelText, sendModel } from '../src/assistant/provider.ts';
+import { groqFallbackModels, GroqRateLimitError, messageWithFile, modelText, sendModel } from '../src/assistant/provider.ts';
+import { config } from '../src/config.ts';
 import { createAssistantRouter } from '../src/assistant/router.ts';
 import { errorHandler } from '../src/middleware/error-handler.ts';
 
@@ -54,7 +55,8 @@ test('assistant confines tool calls to account data and applies a proposal only 
       ];
     }
     if (results.has('create')) {
-      assert.deepEqual(results.get('read').items, [taskA]);
+      assert.deepEqual(results.get('read').items.map(({ source, ...item }) => item), [taskA]);
+      assert.match(results.get('read').items[0].source.href, /^\/work\?/);
       for (const name of ['forged-user', 'foreign-task', 'password', 'unavailable']) assert.ok(results.get(name).error, name);
       assert.ok(results.get('describe').fields.properties.title);
       assert.equal(results.get('create').status, 'awaiting_approval');
@@ -81,8 +83,8 @@ test('assistant confines tool calls to account data and applies a proposal only 
     assert.deepEqual(work.get(userB), [taskB]);
     assert.equal((await request(`/changes/${id}/apply`, 'b', 'POST')).status, 404);
     assert.equal((await request(`/changes/${id}/apply`, 'a-other-device', 'POST')).status, 404);
-    assert.equal((await request(`/changes/${id}/apply`, 'a', 'POST', { details: { title: 'Payload thay thế' } })).status, 204);
-    assert.equal((await request(`/changes/${id}/apply`, 'a', 'POST')).status, 404);
+    assert.equal((await request(`/changes/${id}/apply`, 'a', 'POST', { details: { title: 'Payload thay thế' } })).status, 200);
+    assert.equal((await request(`/changes/${id}/apply`, 'a', 'POST')).status, 200);
     assert.deepEqual(work.get(userA).map((task) => task.title), ['Đọc giáo trình', 'Lấy sách ở thư viện']);
 
     const deletion = await chat('Xóa công việc', 'a');
@@ -218,6 +220,179 @@ test('GroqCloud reports its retry interval when the free plan limit is reached',
   await assert.rejects(sendModel(groqConnection, [], 'LifeOS', [], AbortSignal.timeout(2000)), {
     code: 'ASSISTANT_PROVIDER_RATE_LIMIT', message: /GroqCloud.*7 giây/,
   });
+});
+
+test('Groq fallback keeps the requested order and skips cooling models on the next turn', async (t) => {
+  const connection = { ...groqConnection, apiKey: randomUUID() };
+  const models = [];
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    const body = JSON.parse(request.body);
+    models.push(body.model);
+    if (body.model !== 'openai/gpt-oss-120b') {
+      return new Response(null, { status: 429, headers: { 'Retry-After': '120' } });
+    }
+    assert.equal(body.reasoning_format, undefined);
+    return Response.json({ choices: [{ message: { content: 'OK' } }] });
+  });
+  const send = () => sendModel(connection, [{ role: 'user', content: 'Hi' }], 'LifeOS', [], AbortSignal.timeout(2000));
+  assert.equal(modelText(await send()), 'OK');
+  assert.deepEqual(models, groqFallbackModels);
+  await send();
+  assert.deepEqual(models, [...groqFallbackModels, 'openai/gpt-oss-120b']);
+  // Another credential must have its own cooldowns.
+  await sendModel({ ...connection, apiKey: randomUUID() }, [], 'LifeOS', [], AbortSignal.timeout(2000));
+  assert.deepEqual(models.slice(-4), groqFallbackModels);
+});
+
+test('Groq skips a model whose request-size budget cannot fit the tool payload', async (t) => {
+  const models = [];
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    models.push(JSON.parse(request.body).model);
+    return models.length === 1 ? new Response(null, { status: 413 }) : Response.json({ choices: [{ message: { content: 'OK' } }] });
+  });
+  const connection = { ...groqConnection, apiKey: randomUUID() };
+  assert.equal(modelText(await sendModel(connection, [], 'LifeOS', [], AbortSignal.timeout(2000))), 'OK');
+  assert.deepEqual(models, groqFallbackModels.slice(0, 2));
+});
+
+test('Groq reuses tool calls and results when a later tool round changes model', async (t) => {
+  const connection = { ...groqConnection, apiKey: randomUUID() };
+  const call = { id: 'fallback-call', type: 'function', function: { name: 'read_lifeos', arguments: '{"resource":"tasks"}' } };
+  const user = { role: 'user', content: 'Read tasks' };
+  const models = [];
+  const definition = { type: 'function', name: 'read_lifeos', description: 'Read tasks', parameters: { type: 'object' } };
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    const body = JSON.parse(request.body);
+    models.push(body.model);
+    if (models.length === 1) return Response.json({ choices: [{ message: { content: null, tool_calls: [call] } }] });
+    if (body.model === connection.model) return new Response(null, { status: 429 });
+    assert.deepEqual(body.messages.slice(1), [user,
+      { role: 'assistant', content: null, tool_calls: [call] },
+      { role: 'tool', tool_call_id: call.id, content: '{"items":[]}' },
+    ]);
+    assert.equal(body.tools[0].function.name, definition.name);
+    return Response.json({ choices: [{ message: { content: 'No tasks' } }] });
+  });
+  const first = await sendModel(connection, [user], 'LifeOS', [definition], AbortSignal.timeout(2000));
+  const final = await sendModel(connection, [user, ...first,
+    { type: 'function_call_output', call_id: call.id, output: '{"items":[]}' },
+  ], 'LifeOS', [definition], AbortSignal.timeout(2000));
+  assert.equal(modelText(final), 'No tasks');
+  assert.deepEqual(models, [connection.model, connection.model, groqFallbackModels[1]]);
+});
+
+test('Groq resumes its preferred model after Retry-After expires', async (t) => {
+  const connection = { ...groqConnection, apiKey: randomUUID() };
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const models = [];
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    models.push(JSON.parse(request.body).model);
+    if (models.length === 1) return new Response(null, { status: 429, headers: { 'Retry-After': '5' } });
+    return Response.json({ choices: [{ message: { content: 'OK' } }] });
+  });
+  const send = () => sendModel(connection, [], 'LifeOS', [], AbortSignal.timeout(2000));
+  await send();
+  now += 4999;
+  await send();
+  now += 1;
+  await send();
+  assert.deepEqual(models, [connection.model, groqFallbackModels[1], groqFallbackModels[1], connection.model]);
+});
+
+test('Groq reports the earliest reset when all models are limited without sending more requests', async (t) => {
+  const connection = { ...groqConnection, apiKey: randomUUID() };
+  const seconds = [90, 70, 120, 60];
+  const mock = t.mock.method(globalThis, 'fetch', async () => new Response(null, {
+    status: 429, headers: { 'Retry-After': String(seconds.shift()) },
+  }));
+  const send = () => sendModel(connection, [], 'LifeOS', [], AbortSignal.timeout(2000));
+  for (let i = 0; i < 2; i++) {
+    await assert.rejects(send, (error) => {
+      assert.ok(error instanceof GroqRateLimitError);
+      assert.equal(error.retryAfterSeconds, 60);
+      assert.match(error.message, /Tất cả model GroqCloud/);
+      return true;
+    });
+  }
+  assert.equal(mock.mock.calls.length, 4);
+});
+
+test('Groq does not switch models for authentication, invalid requests, server errors or cancellation', async (t) => {
+  for (const status of [400, 401, 403, 404, 500]) {
+    const mock = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status }));
+    await assert.rejects(sendModel({ ...groqConnection, apiKey: randomUUID() }, [], 'LifeOS', [], AbortSignal.timeout(2000)));
+    assert.equal(mock.mock.calls.length, 1);
+    mock.mock.restore();
+  }
+  const controller = new AbortController();
+  const reason = new Error('Cancelled');
+  const mock = t.mock.method(globalThis, 'fetch', async () => {
+    controller.abort(reason);
+    return new Response(null, { status: 429 });
+  });
+  await assert.rejects(sendModel({ ...groqConnection, apiKey: randomUUID() }, [], 'LifeOS', [], controller.signal), reason);
+  assert.equal(mock.mock.calls.length, 1);
+});
+
+test('Groq respects a selected model and leaves custom or image models out of text fallback', async (t) => {
+  const models = [];
+  t.mock.method(globalThis, 'fetch', async (_url, request) => {
+    models.push(JSON.parse(request.body).model);
+    return new Response(null, { status: 429, headers: { 'Retry-After': new Date(Date.now() + 120000).toUTCString() } });
+  });
+  const send = (model, input = []) => sendModel({ ...groqConnection, model, apiKey: randomUUID() }, input,
+    'LifeOS', [], AbortSignal.timeout(2000));
+  await assert.rejects(send(groqFallbackModels[2]));
+  assert.deepEqual(models.splice(0), groqFallbackModels.slice(2));
+  await assert.rejects(send('custom/model'));
+  assert.deepEqual(models.splice(0), ['custom/model']);
+  const image = messageWithFile('Read', { name: 'slide.png', mimeType: 'image/png', data: 'YQ==' });
+  await assert.rejects(send(groqConnection.model, [image]));
+  assert.deepEqual(models, [groqConnection.model]);
+});
+
+test('assistant uses the server Groq key by default and prioritizes a saved personal connection', async (t) => {
+  const serverKey = config.GROQ_API_KEY;
+  config.GROQ_API_KEY = 'server-groq-fixture';
+  t.after(() => { config.GROQ_API_KEY = serverKey; });
+  const auth = { authenticate: async (token) => sessions.get(token) };
+  const actions = createAssistantActions({}, {});
+  let saved;
+  const store = { canSaveKey: true, settings: async () => saved && { provider: saved.provider, model: saved.model },
+    connection: async () => saved, saveHistory: async () => {}, history: async () => [] };
+  const originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, request) => {
+    if (!String(url).startsWith('https://api.groq.com/')) return originalFetch(url, request);
+    const headers = request.headers;
+    assert.equal(headers.get('Authorization'), `Bearer ${saved?.apiKey ?? config.GROQ_API_KEY}`);
+    assert.equal(JSON.parse(request.body).model, saved?.model ?? groqConnection.model);
+    return Response.json({ choices: [{ message: { content: 'OK' } }] });
+  });
+  const app = express().use(createAssistantRouter(auth, actions, undefined, store)).use(errorHandler);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const headers = { Authorization: 'Bearer a', 'Content-Type': 'application/json' };
+    const settings = await (await fetch(origin + '/settings', { headers })).json();
+    assert.equal(settings.configured, true);
+    assert.equal(settings.provider, 'groq');
+    assert.equal(settings.model, groqConnection.model);
+    assert.equal(settings.hasPersonalKey, false);
+    assert.deepEqual(settings.groqFallbackModels, groqFallbackModels);
+    assert.ok(!JSON.stringify(settings).includes(config.GROQ_API_KEY));
+    const chat = () => fetch(origin + '/chat', { method: 'POST', headers,
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }] }) });
+    assert.equal((await chat()).status, 200);
+    saved = { provider: 'groq', model: 'custom/model', apiKey: 'personal-groq-fixture' };
+    assert.equal((await chat()).status, 200);
+    const personal = await (await fetch(origin + '/settings', { headers })).json();
+    assert.equal(personal.model, 'custom/model');
+    assert.equal(personal.hasPersonalKey, true);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('assistant retries the same Groq image request once after a short rate limit', async () => {

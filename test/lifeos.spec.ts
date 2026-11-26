@@ -1212,7 +1212,7 @@ test.describe('Giao diện LifeOS', () => {
     await page.getByRole('button', { name: 'Mở trợ lý LifeOS' }).click();
     const assistant = page.getByRole('dialog', { name: 'Trợ lý LifeOS' });
     await expect(assistant.getByText(/gửi tới GroqCloud/)).toBeVisible();
-    await expect(assistant.getByLabel('Chọn tệp cho trợ lý')).toHaveAttribute('accept', 'image/png,image/jpeg');
+    await expect(assistant.getByLabel('Chọn tệp cho trợ lý')).toHaveAttribute('accept', 'image/png,image/jpeg,.txt,.md,.csv,.json');
     await assistant.getByRole('button', { name: 'Đóng trợ lý' }).click();
     const other = await registerApiUser(request, `ai-other-${stamp}@example.test`, 'Tài khoản thử khác');
     expect(await apiJson(request, path, other.token)).toMatchObject({ hasPersonalKey: false });
@@ -1222,6 +1222,8 @@ test.describe('Giao diện LifeOS', () => {
   });
 
   test('slide đề cương xem trước tỷ trọng và tệp từ chat lưu đúng môn', async ({ page, request }) => {
+    // This scenario exercises PDF-capable providers, independently of the server default.
+    await page.route('**/api/assistant/status', (route) => route.fulfill({ json: { configured: true, provider: 'gemini' } }));
     const token = (await page.evaluate(() => localStorage.getItem('lifeos_token')))!;
     const initialGrades = [{ name: 'Giữa kỳ', score10: 8, weight: 100 }];
     const course = await apiJson<{ id: string }>(request, '/study/courses', token, {

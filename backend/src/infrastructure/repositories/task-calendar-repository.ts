@@ -1,15 +1,18 @@
 import type { CalendarTime } from '../../application/models.js';
 import { randomUUID } from 'node:crypto';
-import type { Transaction } from 'kysely';
+import { sql, type Transaction } from 'kysely';
 import { ApplicationError } from '../../application/errors.js';
 import { db } from '../../database/index.js';
 import type { Database } from '../../database/types.js';
 
 export interface TaskBlockInput extends CalendarTime {
   taskId: string;
+  workKind?: 'task' | 'assignment';
 }
 
-const blockColumns = ['id', 'task_id as taskId', 'scheduled_date as date', 'start_minute as start', 'end_minute as end'] as const;
+const blockColumns = ['id', sql<string>`coalesce(task_id, assignment_id)`.as('taskId'),
+  sql<'task' | 'assignment'>`case when assignment_id is null then 'task' else 'assignment' end`.as('workKind'),
+  'scheduled_date as date', 'start_minute as start', 'end_minute as end'] as const;
 
 const weekday = (date: string) => ((new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7) + 1;
 type RepeatingTime = CalendarTime & { weekly?: boolean };
@@ -104,7 +107,8 @@ export class TaskCalendarRepository {
       await lockCalendar(trx, userId);
       await this.validate(trx, userId, blocks);
       return trx.insertInto('task_schedule_blocks').values(blocks.map((block) => ({
-        id: randomUUID(), user_id: userId, task_id: block.taskId,
+        id: randomUUID(), user_id: userId, task_id: block.workKind === 'assignment' ? null : block.taskId,
+        assignment_id: block.workKind === 'assignment' ? block.taskId : null,
         scheduled_date: block.date, start_minute: block.start, end_minute: block.end,
       }))).returning(blockColumns).execute();
     });
@@ -113,10 +117,10 @@ export class TaskCalendarRepository {
   move(userId: string, id: string, target: CalendarTime) {
     return db.transaction().execute(async (trx) => {
       await lockCalendar(trx, userId);
-      const current = await trx.selectFrom('task_schedule_blocks').select('task_id')
+      const current = await trx.selectFrom('task_schedule_blocks').select(blockColumns)
         .where('user_id', '=', userId).where('id', '=', id).executeTakeFirst();
       if (!current) throw new ApplicationError('RESOURCE_ITEM_NOT_FOUND', 'Không tìm thấy phiên làm việc.');
-      await this.validate(trx, userId, [{ ...target, taskId: current.task_id }], id);
+      await this.validate(trx, userId, [{ ...target, taskId: current.taskId, workKind: current.workKind }], id);
       return trx.updateTable('task_schedule_blocks')
         .set({ scheduled_date: target.date, start_minute: target.start, end_minute: target.end })
         .where('user_id', '=', userId).where('id', '=', id).returning(blockColumns).executeTakeFirstOrThrow();
@@ -133,17 +137,24 @@ export class TaskCalendarRepository {
   }
 
   private async validate(trx: Transaction<Database>, userId: string, blocks: TaskBlockInput[], ignoredId?: string) {
-    const tasks = [...new Set(blocks.map((block) => block.taskId))];
-    const open = await trx.selectFrom('tasks').leftJoin('projects', 'projects.id', 'tasks.project_id')
+    const tasks = [...new Set(blocks.filter((block) => block.workKind !== 'assignment').map((block) => block.taskId))];
+    const open = tasks.length ? await trx.selectFrom('tasks').leftJoin('projects', 'projects.id', 'tasks.project_id')
       .select('tasks.id').where((eb) => eb.or([
         eb('projects.user_id', '=', userId), eb('tasks.personal_user_id', '=', userId),
       ])).where('tasks.id', 'in', tasks)
       .where('tasks.is_done', '=', 0).where('tasks.status', '!=', 'done')
       .where('tasks.fixed_date', 'is', null)
       .where((eb) => eb.or([eb('tasks.category', 'is', null), eb('tasks.category', '!=', 'employment')]))
-      .forShare('tasks').execute();
+      .forShare('tasks').execute() : [];
     if (open.length !== tasks.length) {
       throw new ApplicationError('TASK_NOT_FOUND', 'Chỉ xếp giờ cho việc linh hoạt chưa hoàn thành.');
+    }
+
+    const assignments = [...new Set(blocks.filter((block) => block.workKind === 'assignment').map((block) => block.taskId))];
+    if (assignments.length) {
+      const available = await trx.selectFrom('assignments').select('id').where('user_id', '=', userId)
+        .where('id', 'in', assignments).where('status', '!=', 'Completed').forShare().execute();
+      if (available.length !== assignments.length) throw new ApplicationError('TASK_NOT_FOUND', 'Chỉ xếp giờ cho bài tập chưa hoàn thành trong tài khoản.');
     }
 
     await assertCalendarAvailable(trx, userId, blocks, { ignoredBlockId: ignoredId });

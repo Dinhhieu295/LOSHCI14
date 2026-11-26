@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --import tsx --test tests/assistant.test.mjs tests/assistant-workflow.test.mjs",
+    "test:integration": "node --import tsx --test tests/assistant-workflow.integration.mjs",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",

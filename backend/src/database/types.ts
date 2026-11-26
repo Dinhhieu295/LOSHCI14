@@ -207,10 +207,23 @@ export interface Database {
   task_schedule_blocks: {
     id: string;
     user_id: string;
-    task_id: string;
+    task_id: string | null;
+    assignment_id: string | null;
     scheduled_date: string;
     start_minute: number;
     end_minute: number;
+  };
+  assistant_drafts: {
+    id: string;
+    user_id: string;
+    session_id: string;
+    scope: string;
+    command_json: string;
+    preview_json: string;
+    status: string;
+    result_json: string | null;
+    expires_at: string;
+    created_at: string;
   };
   project_task_files: {
     id: string;

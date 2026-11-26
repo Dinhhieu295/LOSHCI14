@@ -1,5 +1,9 @@
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+
+// Resolve server-only settings from src/ and dist/, independently of the launch directory.
+loadEnv({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -10,6 +14,7 @@ const envSchema = z.object({
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   OPENAI_API_KEY: z.string().trim().optional(),
   OPENAI_MODEL: z.string().trim().min(1).default('gpt-5-mini'),
+  GROQ_API_KEY: z.string().trim().optional(),
   ASSISTANT_SETTINGS_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().trim().min(32).optional()),
 });
 

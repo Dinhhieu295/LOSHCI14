@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Flag, GripVertical, Lightbulb, Plus, SlidersHorizontal } from 'lucide-react';
 import {
-  api, type AvailabilityWindow, type CalendarTaskBlock, type CalendarTaskInput, type CalendarTime, type Course,
+  api, type Assignment, type AvailabilityWindow, type CalendarTaskBlock, type CalendarTaskInput, type CalendarTime, type Course,
   type CourseSession, type NoticeHandler, type PlanningSettings, type Project, type ProjectTask, type ScheduleItem,
 } from './api';
 import { CalendarDialog, PersonalEventEditor, TaskSlotEditor, type PersonalDraft } from './CalendarEditors';
@@ -23,6 +23,8 @@ interface Props {
   projects: Project[];
   tasksByProject: Record<string, ProjectTask[]>;
   personalTasks: ProjectTask[];
+  assignments: Assignment[];
+  onOpenAssignment: (courseId: string | null, assignmentId: string) => void;
   setSchedule: Dispatch<SetStateAction<ScheduleItem[]>>;
   planningRevision: number;
   weekDate: string | null;
@@ -47,8 +49,8 @@ const shortDate = (date: string) => `${date.slice(8)}/${date.slice(5, 7)}`;
 const minutesLabel = (minutes: number) => minutes < 60 ? `${minutes} phút` :
   `${Math.floor(minutes / 60)} giờ${minutes % 60 ? ` ${minutes % 60} phút` : ''}`;
 
-export default function TimetablePage({ courses, sessions, schedule, projects, tasksByProject, personalTasks, setSchedule, onNotice,
-  onOpenCourse, onOpenTask, weekDate, onWeekChange, showAvailability, onAvailabilityChange, planningRevision }: Props) {
+export default function TimetablePage({ courses, sessions, schedule, projects, tasksByProject, personalTasks, assignments, setSchedule, onNotice,
+  onOpenCourse, onOpenTask, onOpenAssignment, weekDate, onWeekChange, showAvailability, onAvailabilityChange, planningRevision }: Props) {
   const [now, setNow] = useState(() => new Date());
   const today = localDate(now);
   const week = useMemo(() => startOfWeek(dateOf(weekDate ?? today)), [weekDate, today]);
@@ -85,7 +87,7 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
     return () => { active = false; };
   }, [attempt, planningRevision]);
 
-  const work = useMemo(() => collectWork(projects, tasksByProject, personalTasks), [projects, tasksByProject, personalTasks]);
+  const work = useMemo(() => collectWork(projects, tasksByProject, personalTasks, assignments, courses), [projects, tasksByProject, personalTasks, assignments, courses]);
   const tasks = useMemo(() => new Map(work.map((item) => [item.task.id, item])), [work]);
   const deadlines = useMemo(() => {
     const grouped = new Map<string, WorkItem[]>();
@@ -168,7 +170,7 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
         reportError('Lưu bản xem trước trước khi xếp thêm phiên.');
         return false;
       }
-      const next = { ...target, taskId, id: draftId ?? `draft-${++draftSequence.current}` };
+      const next = { ...target, taskId, workKind: tasks.get(taskId)?.workKind, id: draftId ?? `draft-${++draftSequence.current}` };
       setPreview((previous) => draftId
         ? (previous ?? []).map((item) => item.id === draftId ? next : item)
         : [...(previous ?? []), next]);
@@ -177,7 +179,7 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
       return true;
     }
     const success = await run(block ? 'Đã chuyển phiên làm việc.' : 'Đã thêm phiên làm việc vào lịch.', async () => {
-      if (!block) return saveBlocks([{ ...target, taskId }]);
+      if (!block) return saveBlocks([{ ...target, taskId, workKind: tasks.get(taskId)?.workKind }]);
       const saved = await api<CalendarTaskBlock>(`${workRoute}/${block.id}`, { method: 'PATCH', body: JSON.stringify(target) });
       setBlocks((existing) => existing?.map((item) => item.id === saved.id ? saved : item) ?? null);
     });
@@ -316,7 +318,8 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
     setFourWeeks(false);
     moveWeek(dateOf(date));
   };
-  const openDeadlinesTask = ({ task, group }: WorkItem) => onOpenTask(group.id, task.id);
+  const openDeadlinesTask = ({ task, group, workKind, courseId }: WorkItem) => workKind === 'assignment'
+    ? onOpenAssignment(courseId ?? null, task.id) : onOpenTask(group.id, task.id);
   const saveAvailability = (windows: AvailabilityWindow[]) => run('Đã lưu khung giờ rảnh.', async () => {
     await api<void>('/planning/availability', { method: 'PUT', body: JSON.stringify({ windows }) });
     setAvailability(windows);
@@ -400,11 +403,12 @@ export default function TimetablePage({ courses, sessions, schedule, projects, t
             </button>
           </div>
           <div id="calendar-queue-content" className="calendar-queue-content" hidden={queueCollapsed}>
-            {(projects.length + standaloneCategories.length > 1) && <select className="calendar-filter" aria-label="Lọc hàng đợi" value={projectFilter}
+            {(projects.length + standaloneCategories.length + courses.length > 1) && <select className="calendar-filter" aria-label="Lọc hàng đợi" value={projectFilter}
               onChange={(event) => setProjectFilter(event.target.value)}>
               <option value="">Tất cả công việc</option>
               {standaloneCategories.map((category) => <option value={category} key={category}>{workCategoryLabels[category]}</option>)}
               {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
+              {courses.filter((course) => assignments.some((item) => item.courseId === course.id)).map((course) => <option key={course.id} value={course.id}>Bài tập · {course.name}</option>)}
             </select>}
             <p className="calendar-queue-hint">Việc linh hoạt chưa xếp đủ giờ. Thả phiên vào đây để trả về hàng đợi.</p>
             {blocks && !visibleQueue.length && <p className="calendar-queue-empty">Không còn việc cần xếp giờ trong hàng đợi này.</p>}

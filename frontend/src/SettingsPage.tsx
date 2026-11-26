@@ -10,6 +10,7 @@ type AiSettings = {
   provider: AiProvider;
   model: string;
   defaultModels: Record<AiProvider, string>;
+  groqFallbackModels: string[];
 };
 
 const path = '/assistant/settings';
@@ -108,7 +109,12 @@ export default function SettingsPage({ dark, reminders, onTheme, onReminders }: 
             {provider === 'groq' && <a className="soft-button" href="https://console.groq.com/keys" target="_blank"
               rel="noreferrer">Tạo khóa GroqCloud</a>}
           </div>
-        </form> : <p>Máy chủ cần cấu hình lưu khóa AI cá nhân.</p>}
+        </form> : <p>{settings.configured ? 'Trợ lý đang sử dụng kết nối của máy chủ.' : 'Máy chủ cần cấu hình kết nối AI.'}</p>}
+        {provider === 'groq' && settings.groqFallbackModels.includes(model.trim() || settings.defaultModels.groq) && <p>
+          Khi model chạm hạn mức, trợ lý tự chuyển theo thứ tự: {settings.groqFallbackModels
+            .slice(settings.groqFallbackModels.indexOf(model.trim() || settings.defaultModels.groq)).join(' → ')}.
+          {' '}Model bị giới hạn được tạm bỏ qua và dùng lại khi hết thời gian chờ. Yêu cầu có ảnh chỉ dùng model đang chọn.
+        </p>}
       </> : !error && <p role="status">Đang tải cài đặt…</p>}
       {!settings && error && <button type="button" className="soft-button" onClick={() => {
         setError(''); setAttempt((value) => value + 1);

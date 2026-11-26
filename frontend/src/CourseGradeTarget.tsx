@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { calculateGradeTarget } from '../../backend/src/application/assistant-math';
 
 export type GradeDraft = { name: string; score10: string; weight: string };
 
@@ -29,11 +30,11 @@ function estimateFinalScore(rows: GradeDraft[], totalWeight: number, target: num
     return 'Nhập điểm cho các đầu điểm còn lại để ước lượng.';
   }
 
-  const earned = otherGrades.reduce((sum, row) => sum + Number(row.score10) * Number(row.weight), 0);
-  const required = (target * 100 - earned) / finalWeight;
-  const minimum = Math.ceil(required * 100 - 1e-9) / 100;
-  if (minimum > 10) return 'Mục tiêu vượt mức có thể đạt, kể cả khi cuối kỳ được 10/10.';
-  if (minimum <= 0) return 'Mục tiêu đạt được ngay cả khi cuối kỳ được 0/10.';
+  const { minimum, achievable, alreadyAchieved } = calculateGradeTarget(rows.map((row) => ({
+    name: row.name, score10: row.score10 === '' ? null : Number(row.score10), weight: Number(row.weight),
+  })), target, final.name);
+  if (!achievable) return 'Mục tiêu vượt mức có thể đạt, kể cả khi cuối kỳ được 10/10.';
+  if (alreadyAchieved) return 'Mục tiêu đạt được ngay cả khi cuối kỳ được 0/10.';
   return `Điểm cuối kỳ cần ít nhất ${formatScore.format(minimum)}/10.`;
 }
 

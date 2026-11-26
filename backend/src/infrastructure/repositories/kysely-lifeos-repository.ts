@@ -9,6 +9,7 @@ import { ApplicationError } from '../../application/errors.js';
 import type { Database } from '../../database/types.js';
 import { closeProjectTimer } from './project-resources-repository.js';
 import { assertCalendarAvailable, lockCalendar } from './task-calendar-repository.js';
+import { calculateCourseScore, courseLetterGrade } from '../../application/assistant-math.js';
 
 const studyResources = {
   courses: { table: 'courses', fields: { name: 'name', code: 'code', instructor: 'instructor', credits: 'credits', semester: 'semester', progress: 'progress', score10: 'score10', grade: 'grade', gradeComponents: 'grade_components_json', attendance: 'attendance', absences: 'absences', studyHours: 'study_hours', aimStudyHours: 'aim_study_hours', color: 'color', status: 'status' } },
@@ -73,10 +74,8 @@ function mapStudyItem(resource: StudyResourceName, row: Record<string, any>): St
   }
   if (resource === 'courses') {
     if (typeof row.timer_seconds === 'number') item.trackedSeconds = row.timer_seconds;
-    const components = item.gradeComponents as { score10: number | null; weight: number }[];
-    item.grade = 'N/A';
-    item.score10 = !components.length || components.some(({ score10, weight }) => score10 === null && weight > 0) ? null
-      : Math.round(components.reduce((sum, { score10, weight }) => sum + (score10 ?? 0) * weight, 0) + 1e-8) / 100;
+    item.score10 = calculateCourseScore(item.gradeComponents as { name: string; score10: number | null; weight: number }[]);
+    item.grade = courseLetterGrade(item.score10 as number | null) ?? 'N/A';
   }
   return item as StudyItem;
 }

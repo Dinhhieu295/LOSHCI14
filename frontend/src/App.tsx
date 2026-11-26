@@ -882,9 +882,7 @@ export default function App() {
                   if (activeUserIdRef.current === expectedUserId) setUser(updated);
                 }).catch((error: unknown) => showNotice({ message: error instanceof Error ? error.message : 'Không tải được hồ sơ.', type: 'error' }));
               } else {
-                if (['availability', 'study-feedback', 'task-blocks', 'projects', 'project-tasks', 'tasks', 'courses'].includes(resource)) {
-                  setPlanningRevision((revision) => revision + 1);
-                }
+                setPlanningRevision((revision) => revision + 1);
                 void loadData();
               }
             }} />
@@ -1042,6 +1040,8 @@ export default function App() {
               tasksByProject={tasksByProject}
               personalTasks={personalTasks}
               setSchedule={setScheduleItems}
+              assignments={assignments}
+              onOpenAssignment={(courseId, assignmentId) => navigateSection('study', { studyTab: 'assignments', courseId, assignmentId })}
               weekDate={calendarWeek}
               onWeekChange={(week) => navigateSection('calendar', { calendarWeek: week })}
               showAvailability={calendarAvailability}
