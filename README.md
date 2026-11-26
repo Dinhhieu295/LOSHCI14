@@ -136,13 +136,21 @@ npm run dev
 
 Frontend chạy ở `http://localhost:5173` và Vite proxy `/api` tới backend ở cổng `4000`.
 
-### Deploy bản demo trên Render Free và Neon Free
+### Deploy bản dùng thử trên Render
+
+Tạo **New → Blueprint** từ repository `Dinhhieu295/LOSHCI14`, chọn nhánh `nguyen` và đặt **Blueprint Path** là `render.demo.yaml`. Cấu hình này tạo API Node.js Free, frontend Static Site và PostgreSQL Free ở Singapore. Nhập `GROQ_API_KEY` trong phần secret của API rồi triển khai; URL API, CORS và kết nối database được nối tự động. Backend chạy migration trước khi khởi động. Frontend build từ gốc repository để dùng chung mã tính điểm với backend.
+
+Sau khi Render báo **Live**, mở URL của `loshci14-demo-web`, đăng ký tài khoản riêng rồi thử dự án, công việc, lịch học và trợ lý. Database mới tách biệt với dữ liệu Docker trên máy. Giữ `ASSISTANT_SETTINGS_KEY` được tạo tự động qua các lần deploy để đọc được API key cá nhân đã mã hóa.
+
+Render PostgreSQL Free hết hạn sau 30 ngày và API Free có thể ngủ khi không sử dụng. Xem [giới hạn gói Free của Render](https://render.com/docs/free). Nếu workspace đã có database Free, dùng database có sẵn hoặc cấu hình Neon bên dưới thay vì tạo thêm. Không đưa API key hoặc chuỗi kết nối database vào Git.
+
+### Deploy với Render Free và Neon Free
 
 Tạo project PostgreSQL trên Neon ở vùng Singapore và lấy chuỗi kết nối **Direct** có TLS từ mục **Connect**. Trong Render, tạo Blueprint từ nhánh GitHub có `render.yaml`, chọn gói Free và nhập chuỗi kết nối Neon vào biến `DATABASE_URL` của backend. Backend chạy migration trước khi khởi động. Frontend nhận URL của API từ Blueprint.
 
 Nếu cập nhật một Blueprint đã có, đặt lại `DATABASE_URL` trong mục **Environment** của backend Render. Chuỗi này chứa thông tin đăng nhập DB, nên lưu trong cấu hình riêng của Render. Có thể đăng ký một tài khoản trên bản web để nhập dữ liệu demo.
 
-Blueprint tạo `ASSISTANT_SETTINGS_KEY` cho backend để mã hóa các API key cá nhân. Trên bản web, đăng nhập rồi mở **Cài đặt → Trợ lý AI**, chọn **OpenAI**, nhập API key có hạn mức và lưu kết nối. Giữ giá trị `ASSISTANT_SETTINGS_KEY` khi cập nhật dịch vụ để backend tiếp tục mở được khóa đã lưu.
+Blueprint tạo `ASSISTANT_SETTINGS_KEY` cho backend để mã hóa các API key cá nhân. Nhập `GROQ_API_KEY` trong phần secret của backend để bật trợ lý mặc định. Trên bản web cũng có thể đăng nhập rồi mở **Cài đặt → Trợ lý AI** để lưu kết nối riêng. Giữ giá trị `ASSISTANT_SETTINGS_KEY` khi cập nhật dịch vụ để backend tiếp tục mở được khóa đã lưu.
 
 ### Tài khoản demo
 

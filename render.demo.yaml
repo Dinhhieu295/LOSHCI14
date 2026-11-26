@@ -1,0 +1,67 @@
+# Self-contained test deployment. Existing Neon deployments use render.yaml.
+services:
+  - type: web
+    name: loshci14-demo-api
+    runtime: node
+    branch: nguyen
+    rootDir: backend
+    region: singapore
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run db:migrate:prod && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: loshci14-demo-db
+          property: connectionString
+      - key: ASSISTANT_SETTINGS_KEY
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SESSION_TTL_DAYS
+        value: 30
+      - key: CORS_ORIGIN
+        fromService:
+          type: web
+          name: loshci14-demo-web
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: loshci14-demo-web
+    runtime: static
+    branch: nguyen
+    buildCommand: npm --prefix frontend ci --include=dev && npm --prefix frontend run build
+    staticPublishPath: frontend/dist
+    buildFilter:
+      paths:
+        - frontend/**
+        - backend/src/application/assistant-math.ts
+        - render.demo.yaml
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: loshci14-demo-api
+          envVarKey: RENDER_EXTERNAL_URL
+
+databases:
+  - name: loshci14-demo-db
+    region: singapore
+    plan: free
+    databaseName: lifeos
+    user: lifeos
+    postgresMajorVersion: "17"
+    ipAllowList: []
